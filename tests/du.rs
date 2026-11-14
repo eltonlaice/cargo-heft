@@ -68,6 +68,13 @@ fn total_matches_du_on_a_real_build() {
         );
     }
     assert!(v["by_crate"]["dep"].as_u64().unwrap() > 0);
+    let crates = v["by_crate"].as_object().unwrap();
+    assert!(
+        !crates.keys().any(|c| c.starts_with("build_script")),
+        "{crates:?}"
+    );
+    let profiles: Vec<&String> = v["by_profile"].as_object().unwrap().keys().collect();
+    assert_eq!(profiles, ["(not in a profile)", "debug"]);
 
     // The content view covers the same bytes, and sees inside the artifacts.
     let content = v["by_content"].as_object().unwrap();

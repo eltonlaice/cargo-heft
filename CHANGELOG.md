@@ -20,6 +20,17 @@ Notable changes to cargo-heft. The format follows
 - Sizes pick their unit after rounding and show plain bytes below 1000:
   `0 B` and `1.0 MB` where it used to say `0.0 kB` and `1000.0 kB`.
 
+- The files a build script run leaves behind (`output`, `stderr`,
+  `root-output`, `invoked.timestamp`) count as build script output in the
+  classic layout too, as they already did in the build-dir v2 layout. They
+  were under "other".
+- "By profile" only lists directories that have the shape of a profile.
+  `doc/`, `package/` and files at the top are grouped as
+  "(not in a profile)", which replaces "(top level)". A build for another
+  target shows as `<triple>/debug` instead of the triple alone.
+- The incremental cache of build scripts is listed as "(build scripts)"
+  instead of a crate called `build_script_build`.
+
 ### Changed
 
 - A target directory that does not exist is reported as nothing to measure,
