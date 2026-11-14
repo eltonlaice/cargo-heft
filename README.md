@@ -72,7 +72,9 @@ more than local work.
 
 - `--target-dir <DIR>`: measure this directory instead of the workspace's.
 - `--top <N>`: how many crates to list (default 15).
-- `--json`: machine-readable output, for both modes.
+- `--json`: machine-readable output, for both modes. It carries a
+  `schema_version`, which goes up when a key is removed or renamed or a value
+  changes meaning; new keys can appear without a new version.
 - `--what-if`: compare profile settings, as above.
 - `--profile <NAME>`: profile for `--what-if` (default `dev`).
 - `-- <args>`: extra arguments for `cargo build` in `--what-if`, such as

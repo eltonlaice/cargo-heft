@@ -172,6 +172,7 @@ fn what_if_measures_each_setting() {
     );
     let v: serde_json::Value = serde_json::from_str(&json).unwrap();
     assert_eq!(v["profile"], "dev");
+    assert_eq!(v["schema_version"], 1);
 
     let scenarios = v["scenarios"].as_array().unwrap();
     assert_eq!(scenarios.len(), 5);

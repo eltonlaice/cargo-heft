@@ -9,6 +9,8 @@ Notable changes to cargo-heft. The format follows
 ### Added
 
 - `--version`.
+- `schema_version` in the `--json` output of both modes, starting at 1. It
+  goes up when a key is removed or renamed or a value changes meaning.
 - A declared minimum supported Rust version (1.88), tested in CI.
 
 ### Fixed

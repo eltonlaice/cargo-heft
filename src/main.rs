@@ -24,6 +24,11 @@ macro_rules! say {
     };
 }
 
+/// Version of the `--json` output, in both modes. Raise it when a key is
+/// removed or renamed, or a value changes meaning; adding a key does not
+/// need a new version.
+const SCHEMA_VERSION: u32 = 1;
+
 const USAGE: &str = "\
 Usage: cargo heft [--target-dir <DIR>] [--top <N>] [--json]
        cargo heft --what-if [--profile <NAME>] [--json] [-- <cargo build args>]
@@ -453,7 +458,7 @@ fn what_if(profile: &str, extra: &[OsString], json: bool) -> Result<(), String> 
             .collect();
         say!(
             "{:#}",
-            serde_json::json!({ "profile": profile, "scenarios": scenarios })
+            serde_json::json!({ "schema_version": SCHEMA_VERSION, "profile": profile, "scenarios": scenarios })
         );
         return Ok(());
     }
@@ -597,6 +602,7 @@ fn run() -> Result<(), String> {
     let r = measure(&target).map_err(|e| format!("{}: {e}", target.display()))?;
     if json {
         let out = serde_json::json!({
+            "schema_version": SCHEMA_VERSION,
             "target_dir": target.to_string_lossy(),
             "total_bytes": r.total,
             "by_kind": r.by_kind,

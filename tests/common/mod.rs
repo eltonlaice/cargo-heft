@@ -276,6 +276,7 @@ pub fn assert_consistent(v: &Value) {
         "by_kind",
         "by_profile",
         "duplicated_metadata_bytes",
+        "schema_version",
         "target_dir",
         "total_bytes",
     ];
@@ -283,6 +284,7 @@ pub fn assert_consistent(v: &Value) {
     keys.sort_unstable();
     assert_eq!(keys, expected, "unexpected report shape: {v}");
 
+    assert_eq!(report["schema_version"], 1, "bump on purpose: {v}");
     let total = report["total_bytes"]
         .as_u64()
         .expect("total_bytes is an unsigned integer");
