@@ -18,6 +18,15 @@ by kind
   rmeta                             29.8 MB    9.5%
   build script executable           11.4 MB    3.6%
   ...
+
+by content
+  code, data and symbols            93.6 MB   29.8%
+  debuginfo                         90.7 MB   28.9%
+  incremental cache                 68.8 MB   21.9%
+  metadata (.rmeta files)           29.8 MB    9.5%
+  metadata (inside rlib/dylib)      29.8 MB    9.5%
+  other                              1.2 MB    0.4%
+  note: 29.8 MB of metadata is stored twice, as a .rmeta file and inside its .rlib
 ```
 
 (ripgrep, fresh `dev` build, macOS arm64, cargo 1.99.1.)
@@ -29,6 +38,9 @@ by kind
   between `deps/` and `incremental/`; a shared file is counted as the artifact
   in `deps/`, so `incremental` is what deleting that directory would free.
 - Files are classified by name, not by directory.
+- "By content" opens `.rlib` archives, object files and binaries and splits
+  each file's on-disk bytes into metadata, debuginfo and the rest, in
+  proportion to the bytes found inside.
 
 ## Options
 
@@ -38,8 +50,7 @@ by kind
 
 ## Status
 
-Early. Works on macOS and Linux. Planned: a breakdown inside `.rlib` files
-(metadata, code, debuginfo) and a `--what-if` mode that measures what each
+Early. Works on macOS and Linux. Planned: a `--what-if` mode that measures what each
 profile setting saves on your project.
 
 ## License

@@ -110,6 +110,58 @@ struct Report {
     by_kind: BTreeMap<String, u64>,
     by_profile: BTreeMap<String, u64>,
     by_crate: BTreeMap<String, u64>,
+    by_content: BTreeMap<String, u64>,
+    /// Bytes of standalone `.rmeta` files whose `.rlib` holds the same metadata.
+    duplicated_metadata: u64,
+}
+
+/// Logical bytes of metadata and debuginfo inside one file.
+#[derive(Default)]
+struct Parts {
+    metadata: u64,
+    debuginfo: u64,
+}
+
+fn object_parts(data: &[u8], p: &mut Parts) {
+    use object::{Object, ObjectSection, SectionKind};
+    let Ok(file) = object::File::parse(data) else {
+        return;
+    };
+    for s in file.sections() {
+        let size = s.file_range().map_or(0, |(_, len)| len);
+        let name = s.name().unwrap_or("");
+        if name == ".rustc" {
+            p.metadata += size;
+        } else if matches!(s.kind(), SectionKind::Debug | SectionKind::DebugString)
+            || [".debug", ".zdebug", "__debug"]
+                .iter()
+                .any(|d| name.starts_with(d))
+        {
+            p.debuginfo += size;
+        }
+    }
+}
+
+/// Looks inside an `.rlib` (an archive of metadata and object files) or a
+/// single object file, executable or dylib.
+fn parts(data: &[u8], is_rlib: bool) -> Parts {
+    let mut p = Parts::default();
+    match object::read::archive::ArchiveFile::parse(data) {
+        Ok(archive) if is_rlib => {
+            for member in archive.members().flatten() {
+                let Ok(bytes) = member.data(data) else {
+                    continue;
+                };
+                if member.name() == b"lib.rmeta" {
+                    p.metadata += bytes.len() as u64;
+                } else {
+                    object_parts(bytes, &mut p);
+                }
+            }
+        }
+        _ => object_parts(data, &mut p),
+    }
+    p
 }
 
 struct File {
@@ -156,6 +208,45 @@ impl Report {
     }
 }
 
+impl Report {
+    /// Splits a file's on-disk bytes by what is inside it.
+    fn add_content(
+        &mut self,
+        root: &Path,
+        f: &File,
+        kind: &str,
+        rlibs: &mut BTreeMap<PathBuf, u64>,
+    ) {
+        let mut put = |name: &str, bytes: u64| {
+            if bytes > 0 {
+                *self.by_content.entry(name.into()).or_default() += bytes;
+            }
+        };
+        match kind {
+            "rlib" | "object file" | "binary" | "dylib" | "build script executable" => {
+                // ponytail: reads each file whole; mmap if huge targets get slow.
+                let data = fs::read(root.join(&f.rel)).unwrap_or_default();
+                let p = parts(&data, kind == "rlib");
+                // Scale logical bytes to the blocks the file occupies.
+                let scale =
+                    |n: u64| (n as u128 * f.bytes as u128 / data.len().max(1) as u128) as u64;
+                let (metadata, debuginfo) = (scale(p.metadata).min(f.bytes), scale(p.debuginfo));
+                let debuginfo = debuginfo.min(f.bytes - metadata);
+                put("metadata (inside rlib/dylib)", metadata);
+                put("debuginfo", debuginfo);
+                put("code, data and symbols", f.bytes - metadata - debuginfo);
+                if kind == "rlib" {
+                    rlibs.insert(f.rel.with_extension(""), metadata);
+                }
+            }
+            "rmeta" => put("metadata (.rmeta files)", f.bytes),
+            "debuginfo (dSYM)" | "debuginfo (split DWARF)" => put("debuginfo", f.bytes),
+            "incremental" => put("incremental cache", f.bytes),
+            _ => put("other", f.bytes),
+        }
+    }
+}
+
 fn measure(root: &Path) -> io::Result<Report> {
     let mut r = Report::default();
     let mut files = Vec::new();
@@ -168,11 +259,29 @@ fn measure(root: &Path) -> io::Result<Report> {
     let in_incremental = |f: &File| f.rel.iter().any(|c| c == "incremental");
     files.sort_by(|a, b| (in_incremental(a), &a.rel).cmp(&(in_incremental(b), &b.rel)));
     let mut seen = HashSet::new();
+    let (mut rlibs, mut rmetas) = (BTreeMap::new(), Vec::new());
     for f in &files {
         if cfg!(unix) && !seen.insert(f.id) {
             continue;
         }
-        r.add(&f.rel, classify(&f.rel, f.executable), f.bytes);
+        let kind = classify(&f.rel, f.executable);
+        r.add(&f.rel, kind, f.bytes);
+        r.add_content(root, f, kind, &mut rlibs);
+        if kind == "rmeta" {
+            rmetas.push(f);
+        }
+    }
+    r.duplicated_metadata = rmetas
+        .iter()
+        .filter_map(|f| {
+            rlibs
+                .get(&f.rel.with_extension(""))
+                .map(|inside| f.bytes.min(*inside))
+        })
+        .sum();
+    let dirs = r.by_kind.get("directories").copied().unwrap_or(0);
+    if dirs > 0 {
+        *r.by_content.entry("other".into()).or_default() += dirs;
     }
     Ok(r)
 }
@@ -243,6 +352,8 @@ fn run() -> Result<(), String> {
             "target_dir": target,
             "total_bytes": r.total,
             "by_kind": r.by_kind,
+            "by_content": r.by_content,
+            "duplicated_metadata_bytes": r.duplicated_metadata,
             "by_profile": r.by_profile,
             "by_crate": r.by_crate,
         });
@@ -254,6 +365,13 @@ fn run() -> Result<(), String> {
             r.total as f64 / 1e6
         );
         print_table("by kind", &r.by_kind, r.total, usize::MAX);
+        print_table("by content", &r.by_content, r.total, usize::MAX);
+        if r.duplicated_metadata > 0 {
+            println!(
+                "  note: {:.1} MB of metadata is stored twice, as a .rmeta file and inside its .rlib",
+                r.duplicated_metadata as f64 / 1e6
+            );
+        }
         print_table("by profile", &r.by_profile, r.total, usize::MAX);
         print_table("largest crates", &r.by_crate, r.total, top);
     }

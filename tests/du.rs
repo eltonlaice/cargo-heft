@@ -58,4 +58,22 @@ fn total_matches_du_on_a_real_build() {
         );
     }
     assert!(v["by_crate"]["dep"].as_u64().unwrap() > 0);
+
+    // The content view covers the same bytes, and sees inside the artifacts.
+    let content = v["by_content"].as_object().unwrap();
+    assert_eq!(
+        content.values().map(|b| b.as_u64().unwrap()).sum::<u64>(),
+        total
+    );
+    for part in [
+        "debuginfo",
+        "metadata (inside rlib/dylib)",
+        "metadata (.rmeta files)",
+    ] {
+        assert!(
+            content.get(part).is_some_and(|b| b.as_u64().unwrap() > 0),
+            "no {part} in {content:?}"
+        );
+    }
+    assert!(v["duplicated_metadata_bytes"].as_u64().unwrap() > 0);
 }

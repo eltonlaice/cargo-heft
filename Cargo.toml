@@ -9,4 +9,5 @@ keywords = ["cargo", "subcommand", "target", "disk", "size"]
 categories = ["development-tools::cargo-plugins"]
 
 [dependencies]
+object = { version = "0.41", default-features = false, features = ["read_core", "archive", "elf", "macho", "coff"] }
 serde_json = "1"
