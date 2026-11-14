@@ -44,12 +44,12 @@ by profile
   (not in a profile)                 8.2 kB    0.0%
 
 largest crates
+  ripgrep                           63.1 MB   20.6%
   ignore                            39.6 MB   12.9%
   regex_automata                    38.1 MB   12.4%
-  ripgrep                           37.4 MB   12.2%
-  rg                                25.8 MB    8.4%
   regex_syntax                      22.9 MB    7.5%
   globset                           14.4 MB    4.7%
+  aho_corasick                      13.3 MB    4.3%
 ```
 
 ## What would a setting save?

@@ -85,6 +85,11 @@ fn total_matches_du_on_a_real_build() {
         !crates.keys().any(|c| c.starts_with("build_script")),
         "{crates:?}"
     );
+    // The binary is `fx`, its package is `app`: one row, under the package.
+    assert!(
+        crates.contains_key("app") && !crates.contains_key("fx"),
+        "{crates:?}"
+    );
     let profiles: Vec<&String> = v["by_profile"].as_object().unwrap().keys().collect();
     assert_eq!(profiles, ["(not in a profile)", "debug"]);
 

@@ -3,7 +3,7 @@
 //! Sizes are on-disk (allocated blocks), every inode is counted once, and
 //! directories are included, so the total matches `du -s`.
 
-use std::collections::{BTreeMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::ffi::OsString;
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -153,6 +153,34 @@ fn crate_of(rel: &Path) -> Option<String> {
     None
 }
 
+/// Reads a package's target out of the name of one of Cargo's fingerprint
+/// files (`bin-rg`, `lib-ignore`, `dep-lib-ignore`, ...), as (target, package).
+/// This is how a binary called `rg` is known to belong to `ripgrep`.
+fn target_of(rel: &Path) -> Option<(String, String)> {
+    let comps: Vec<&str> = rel.iter().filter_map(|c| c.to_str()).collect();
+    let norm = |s: &str| s.replace('-', "_");
+    let package = match comps.iter().position(|c| *c == ".fingerprint") {
+        Some(i) => strip_hash(comps.get(i + 1)?)?, // .fingerprint/<pkg>-<hash>/
+        None => {
+            // build/<pkg>/<hash>/fingerprint/
+            let i = comps.iter().position(|c| *c == "build")?;
+            let v2 = is_hash(comps.get(i + 2)?) && comps.get(i + 3) == Some(&"fingerprint");
+            v2.then(|| comps[i + 1])?
+        }
+    };
+    let name = comps.last()?;
+    let name = name.strip_suffix(".json").unwrap_or(name);
+    let name = ["dep-", "output-"]
+        .iter()
+        .find_map(|p| name.strip_prefix(p))
+        .unwrap_or(name);
+    let name = name.strip_prefix("test-").unwrap_or(name);
+    let target = ["bin-", "lib-", "example-", "bench-"]
+        .iter()
+        .find_map(|p| name.strip_prefix(p))?;
+    Some((norm(target), norm(package)))
+}
+
 #[cfg(unix)]
 fn disk_usage(md: &fs::Metadata) -> (u64, (u64, u64), bool) {
     use std::os::unix::fs::MetadataExt;
@@ -290,15 +318,25 @@ fn profile_of(rel: &Path, profiles: &HashSet<&Path>) -> String {
     }
 }
 
+/// What the whole tree says about how to read a single path.
+struct Layout<'a> {
+    /// Directories that are profiles.
+    profiles: HashSet<&'a Path>,
+    /// Target name to package name, where Cargo's fingerprints tell.
+    packages: HashMap<String, String>,
+}
+
 impl Report {
-    fn add(&mut self, rel: &Path, kind: &str, bytes: u64, profiles: &HashSet<&Path>) {
+    fn add(&mut self, rel: &Path, kind: &str, bytes: u64, layout: &Layout) {
         self.total += bytes;
         *self.by_kind.entry(kind.into()).or_default() += bytes;
         *self
             .by_profile
-            .entry(profile_of(rel, profiles))
+            .entry(profile_of(rel, &layout.profiles))
             .or_default() += bytes;
         if let Some(c) = crate_of(rel) {
+            // Files are named after the target; list them under its package.
+            let c = layout.packages.get(&c).cloned().unwrap_or(c);
             *self.by_crate.entry(c).or_default() += bytes;
         }
     }
@@ -349,7 +387,10 @@ fn measure(root: &Path) -> io::Result<Report> {
     let (bytes, ..) = disk_usage(&fs::symlink_metadata(root)?);
     let mut dirs = vec![(PathBuf::new(), bytes)];
     walk(root, root, &mut files, &mut dirs)?;
-    let profiles = profile_dirs(&dirs);
+    let layout = Layout {
+        profiles: profile_dirs(&dirs),
+        packages: files.iter().filter_map(|f| target_of(&f.rel)).collect(),
+    };
     // A v2 unit that has `run/` is a build script run; its `out/` is OUT_DIR.
     let script_units: HashSet<&Path> = dirs
         .iter()
@@ -357,7 +398,7 @@ fn measure(root: &Path) -> io::Result<Report> {
         .filter_map(|(d, _)| d.parent())
         .collect();
     for (dir, bytes) in &dirs {
-        r.add(dir, "directories", *bytes, &profiles);
+        r.add(dir, "directories", *bytes, &layout);
     }
     // rustc hard-links objects and metadata between `deps` and `incremental`.
     // Count each inode once, as the artifact outside `incremental`, so that
@@ -377,7 +418,7 @@ fn measure(root: &Path) -> io::Result<Report> {
             true => "symlink",
             false => classify(&f.rel, f.executable, script_unit),
         };
-        r.add(&f.rel, kind, f.bytes, &profiles);
+        r.add(&f.rel, kind, f.bytes, &layout);
         r.add_content(root, f, kind, &mut rlibs);
         if kind == "rmeta" {
             rmetas.push(f);
@@ -849,6 +890,32 @@ mod tests {
     }
 
     #[test]
+    fn fingerprints_name_the_package_of_a_target() {
+        let t = |p: &str| target_of(Path::new(p));
+        let pair = |target: &str, package: &str| Some((target.to_string(), package.to_string()));
+        let classic = "debug/.fingerprint/ripgrep-0123456789abcdef";
+        assert_eq!(t(&format!("{classic}/bin-rg")), pair("rg", "ripgrep"));
+        assert_eq!(t(&format!("{classic}/bin-rg.json")), pair("rg", "ripgrep"));
+        assert_eq!(t(&format!("{classic}/dep-bin-rg")), pair("rg", "ripgrep"));
+        assert_eq!(t(&format!("{classic}/test-bin-rg")), pair("rg", "ripgrep"));
+        assert_eq!(t(&format!("{classic}/invoked.timestamp")), None);
+        let v2 = "debug/build/proc-macro2/0123456789abcdef/fingerprint";
+        assert_eq!(
+            t(&format!("{v2}/lib-proc_macro2.json")),
+            pair("proc_macro2", "proc_macro2")
+        );
+        assert_eq!(
+            t(&format!("{v2}/output-lib-proc_macro2")),
+            pair("proc_macro2", "proc_macro2")
+        );
+        assert_eq!(
+            t(&format!("{v2}/run-build-script-build-script-build")),
+            None
+        );
+        assert_eq!(t("debug/deps/rg-0123456789abcdef"), None);
+    }
+
+    #[test]
     fn names_the_crate() {
         let c = |p: &str| crate_of(Path::new(p));
         assert_eq!(
@@ -1023,19 +1090,22 @@ mod tests {
     #[test]
     fn a_report_accounts_for_each_added_path_once() {
         let mut r = Report::default();
-        let profiles = HashSet::from([Path::new("debug")]);
-        r.add(Path::new(""), "directories", 4096, &profiles);
+        let layout = Layout {
+            profiles: HashSet::from([Path::new("debug")]),
+            packages: HashMap::from([("notes".to_string(), "notebook".to_string())]),
+        };
+        r.add(Path::new(""), "directories", 4096, &layout);
         r.add(
             Path::new("debug/deps/libfoo-0123456789abcdef.rlib"),
             "rlib",
             8192,
-            &profiles,
+            &layout,
         );
         r.add(
             Path::new("debug/deps/notes-0123456789abcdef.txt"),
             "other",
             1024,
-            &profiles,
+            &layout,
         );
 
         assert_eq!(r.total, 13_312);
@@ -1044,7 +1114,8 @@ mod tests {
         assert_eq!(r.by_profile["(not in a profile)"], 4096);
         assert_eq!(r.by_profile["debug"], 9216);
         assert_eq!(r.by_crate["foo"], 8192);
-        assert_eq!(r.by_crate["notes"], 1024);
+        // `notes` is a target of the package `notebook`.
+        assert_eq!(r.by_crate["notebook"], 1024);
         assert_eq!(r.by_crate.len(), 2);
     }
 
