@@ -3,7 +3,7 @@
 [![CI](https://github.com/eltonlaice/cargo-heft/actions/workflows/ci.yml/badge.svg)](https://github.com/eltonlaice/cargo-heft/actions/workflows/ci.yml)
 [![crates.io](https://img.shields.io/crates/v/cargo-heft.svg)](https://crates.io/crates/cargo-heft)
 
-Shows where the bytes of a Cargo `target/` directory go.
+Find out what takes up space in your Cargo `target/` directory.
 
 ```
 cargo install cargo-heft
