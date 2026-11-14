@@ -1,0 +1,12 @@
+[package]
+name = "cargo-heft"
+version = "0.1.0"
+edition = "2024"
+description = "Shows where the bytes of a Cargo target directory go"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/eltonlaice/cargo-heft"
+keywords = ["cargo", "subcommand", "target", "disk", "size"]
+categories = ["development-tools::cargo-plugins"]
+
+[dependencies]
+serde_json = "1"
