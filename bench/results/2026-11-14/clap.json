@@ -1,0 +1,42 @@
+{
+  "by_content": {
+    "code, data and symbols": 17273645,
+    "debuginfo": 23804460,
+    "incremental cache": 34324480,
+    "metadata (.rmeta files)": 2994176,
+    "metadata (inside rlib/dylib)": 2998951,
+    "other": 282624
+  },
+  "by_crate": {
+    "anstream": 1048576,
+    "anstyle": 593920,
+    "anstyle_parse": 479232,
+    "anstyle_query": 61440,
+    "clap": 106496,
+    "clap_builder": 65536000,
+    "clap_lex": 2711552,
+    "colorchoice": 86016,
+    "is_terminal_polyfill": 49152,
+    "stdio_fixture": 5681152,
+    "strsim": 1835008,
+    "utf8parse": 94208
+  },
+  "by_kind": {
+    "binary": 6709248,
+    "dep-info": 77824,
+    "directories": 0,
+    "fingerprint": 196608,
+    "incremental": 34324480,
+    "object file": 17408000,
+    "other": 8192,
+    "rlib": 19959808,
+    "rmeta": 2994176
+  },
+  "by_profile": {
+    "(top level)": 8192,
+    "debug": 81670144
+  },
+  "duplicated_metadata_bytes": 2981259,
+  "target_dir": "target",
+  "total_bytes": 81678336
+}

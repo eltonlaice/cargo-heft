@@ -1,0 +1,63 @@
+{
+  "by_content": {
+    "code, data and symbols": 46010456,
+    "debuginfo": 72871173,
+    "incremental cache": 88256512,
+    "metadata (.rmeta files)": 26984448,
+    "metadata (inside rlib/dylib)": 37802659,
+    "other": 1146880
+  },
+  "by_crate": {
+    "bytes": 2924544,
+    "doc_comment": 1241088,
+    "errno": 192512,
+    "futures": 69632,
+    "futures_channel": 602112,
+    "futures_core": 241664,
+    "futures_executor": 1073152,
+    "futures_io": 352256,
+    "futures_macro": 2793472,
+    "futures_sink": 94208,
+    "futures_task": 352256,
+    "futures_util": 13701120,
+    "libc": 7495680,
+    "memchr": 2879488,
+    "mio": 2838528,
+    "pin_project_lite": 221184,
+    "proc_macro2": 2682880,
+    "quote": 1937408,
+    "signal_hook_registry": 1167360,
+    "slab": 331776,
+    "socket2": 2146304,
+    "syn": 10293248,
+    "test_cat": 946176,
+    "tests_build": 61440,
+    "tests_integration": 77824,
+    "tokio": 140546048,
+    "tokio_macros": 11255808,
+    "tokio_stream": 8769536,
+    "tokio_test": 7168000,
+    "tokio_util": 5406720,
+    "unicode_ident": 114688
+  },
+  "by_kind": {
+    "binary": 999424,
+    "build script executable": 4972544,
+    "dep-info": 479232,
+    "directories": 0,
+    "dylib": 9146368,
+    "fingerprint": 614400,
+    "incremental": 88256512,
+    "object file": 36605952,
+    "other": 53248,
+    "rlib": 104960000,
+    "rmeta": 26984448
+  },
+  "by_profile": {
+    "(top level)": 8192,
+    "debug": 273063936
+  },
+  "duplicated_metadata_bytes": 26956082,
+  "target_dir": "target",
+  "total_bytes": 273072128
+}

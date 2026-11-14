@@ -1,0 +1,6 @@
+status=ok
+url=https://github.com/tokio-rs/tokio
+commit=f3e855fa55d6c1cc3e7a28e115a421b8ee5860bd
+build_seconds=16
+rustc=rustc 1.99.1 (58cf8f9c3 2026-10-13)
+host=aarch64-apple-darwin

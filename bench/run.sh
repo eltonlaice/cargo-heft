@@ -1,0 +1,57 @@
+#!/bin/sh
+# Builds well-known Rust projects from scratch (dev profile, stable toolchain)
+# and measures each target directory with cargo-heft.
+#
+#   bench/run.sh <work-dir> <out-dir>
+#
+# One JSON file per project in <out-dir>, plus <name>.meta with the commit,
+# the build time and the toolchain. The target directory is removed after
+# measuring, so only one is on disk at a time.
+set -u
+work=$1 out=$2
+heft=$(cd "$(dirname "$0")/.." && pwd)/target/release/cargo-heft
+mkdir -p "$work" "$out"
+work=$(cd "$work" && pwd) out=$(cd "$out" && pwd)
+
+while read -r name url; do
+    [ -z "$name" ] && continue
+    [ -f "$out/$name.json" ] && continue
+    src=$work/$name target=$work/target-$name
+    [ -d "$src" ] || git clone -q --depth 1 "$url" "$src" || { echo "status=clone-failed" > "$out/$name.meta"; continue; }
+    start=$(date +%s)
+    if (cd "$src" && CARGO_TARGET_DIR=$target cargo +stable build >"$out/$name.log" 2>&1); then
+        (cd "$work" && "$heft" --json --target-dir "target-$name") > "$out/$name.json"
+        status=ok
+    else
+        status=build-failed
+    fi
+    {
+        echo "status=$status"
+        echo "url=$url"
+        echo "commit=$(git -C "$src" rev-parse HEAD)"
+        echo "build_seconds=$(($(date +%s) - start))"
+        echo "rustc=$(rustc +stable --version)"
+        echo "host=$(rustc +stable -vV | sed -n 's/^host: //p')"
+    } > "$out/$name.meta"
+    rm -rf "$target"
+    echo "$name $status"
+done <<LIST
+ripgrep https://github.com/BurntSushi/ripgrep
+fd https://github.com/sharkdp/fd
+bat https://github.com/sharkdp/bat
+hyperfine https://github.com/sharkdp/hyperfine
+starship https://github.com/starship/starship
+alacritty https://github.com/alacritty/alacritty
+zola https://github.com/getzola/zola
+tokio https://github.com/tokio-rs/tokio
+axum https://github.com/tokio-rs/axum
+clap https://github.com/clap-rs/clap
+tantivy https://github.com/quickwit-oss/tantivy
+cargo https://github.com/rust-lang/cargo
+rust-analyzer https://github.com/rust-lang/rust-analyzer
+typst https://github.com/typst/typst
+nushell https://github.com/nushell/nushell
+ruff https://github.com/astral-sh/ruff
+uv https://github.com/astral-sh/uv
+wasmtime https://github.com/bytecodealliance/wasmtime
+LIST

@@ -1,0 +1,6 @@
+status=ok
+url=https://github.com/typst/typst
+commit=84cca406aafe7f830ed3f37f1cc6f0c8b6b65a03
+build_seconds=411
+rustc=rustc 1.99.1 (58cf8f9c3 2026-10-13)
+host=aarch64-apple-darwin

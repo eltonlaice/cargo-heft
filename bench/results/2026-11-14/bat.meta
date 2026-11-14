@@ -1,0 +1,6 @@
+status=ok
+url=https://github.com/sharkdp/bat
+commit=8cf33bdde9a6e4c11d0f866415b1fc867df0cd40
+build_seconds=46
+rustc=rustc 1.99.1 (58cf8f9c3 2026-10-13)
+host=aarch64-apple-darwin

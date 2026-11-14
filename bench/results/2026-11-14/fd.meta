@@ -1,0 +1,6 @@
+status=ok
+url=https://github.com/sharkdp/fd
+commit=6cf330283cfdcd1b8a6100beec7375bbb58975a3
+build_seconds=13
+rustc=rustc 1.99.1 (58cf8f9c3 2026-10-13)
+host=aarch64-apple-darwin

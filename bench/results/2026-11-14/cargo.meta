@@ -1,0 +1,6 @@
+status=build-failed
+url=https://github.com/rust-lang/cargo
+commit=382ecb8707b82592bb7176ba62b07590c29dee35
+build_seconds=16
+rustc=rustc 1.99.1 (58cf8f9c3 2026-10-13)
+host=aarch64-apple-darwin

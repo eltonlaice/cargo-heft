@@ -1,0 +1,6 @@
+status=ok
+url=https://github.com/rust-lang/rust-analyzer
+commit=114dcb8d6f50aca1ef14d67b831a7560362f8f69
+build_seconds=87
+rustc=rustc 1.99.1 (58cf8f9c3 2026-10-13)
+host=aarch64-apple-darwin
