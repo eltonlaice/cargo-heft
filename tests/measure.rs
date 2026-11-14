@@ -356,14 +356,19 @@ fn symlinks_are_counted_but_not_followed() {
             total < 1024 * 1024,
             "an 8 MiB symlink target leaked into the total: {total}"
         );
-        // Symlinks themselves take no space here; none of the external files
-        // may appear in the report, even under a zero-valued key.
-        for kind in ["binary", "doc", "package"] {
+        // A symlink takes no space on APFS and up to a block on ext4. Either
+        // way it is counted as a symlink, not as what its name suggests, and
+        // nothing it points to may appear in the report.
+        let links = report["by_kind"]["symlink"]
+            .as_u64()
+            .expect("a symlink row");
+        assert!(links <= 3 * 4096, "three links cannot take {links} bytes");
+        for kind in ["binary", "rlib", "rmeta", "doc", "package"] {
             if let Some(bytes) = report["by_kind"].get(kind) {
                 assert_eq!(
                     bytes.as_u64().unwrap(),
                     0,
-                    "symlink target leaked into {kind}: {report}"
+                    "a symlink was counted as {kind}: {report}"
                 );
             }
         }

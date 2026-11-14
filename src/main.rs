@@ -230,6 +230,7 @@ struct File {
     bytes: u64,
     id: (u64, u64),
     executable: bool,
+    symlink: bool,
 }
 
 fn walk(
@@ -252,6 +253,7 @@ fn walk(
                 bytes,
                 id,
                 executable,
+                symlink: md.file_type().is_symlink(),
             });
         }
     }
@@ -364,7 +366,12 @@ fn measure(root: &Path) -> io::Result<Report> {
             continue;
         }
         let script_unit = f.rel.ancestors().any(|a| script_units.contains(a));
-        let kind = classify(&f.rel, f.executable, script_unit);
+        // A symlink is not what its name says: it is a link, with mode 0777,
+        // and what it points to may be outside the target directory.
+        let kind = match f.symlink {
+            true => "symlink",
+            false => classify(&f.rel, f.executable, script_unit),
+        };
         r.add(&f.rel, kind, f.bytes, &profiles);
         r.add_content(root, f, kind, &mut rlibs);
         if kind == "rmeta" {
