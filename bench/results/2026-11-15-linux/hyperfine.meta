@@ -1,0 +1,6 @@
+status=ok
+url=https://github.com/sharkdp/hyperfine
+commit=c5161524980522320c7d3425e714cc0965a869a5
+build_seconds=19
+rustc=rustc 1.100.0 (0ef1bc386 2026-11-09)
+host=x86_64-unknown-linux-gnu

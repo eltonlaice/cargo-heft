@@ -1,0 +1,6 @@
+status=ok
+url=https://github.com/alacritty/alacritty
+commit=aa5d942f46c40184a3f214830ff5f7989f4733a1
+build_seconds=36
+rustc=rustc 1.100.0 (0ef1bc386 2026-11-09)
+host=x86_64-unknown-linux-gnu

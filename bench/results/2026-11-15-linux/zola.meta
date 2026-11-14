@@ -1,0 +1,6 @@
+status=ok
+url=https://github.com/getzola/zola
+commit=48d4e7a9f63bbf5d838b977b6e0403949cac5698
+build_seconds=141
+rustc=rustc 1.100.0 (0ef1bc386 2026-11-09)
+host=x86_64-unknown-linux-gnu

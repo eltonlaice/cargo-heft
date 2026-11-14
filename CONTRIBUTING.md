@@ -64,7 +64,10 @@ Two things that are easy to get wrong:
 
 `bench/run.sh` builds a list of well-known projects from scratch and measures
 each one; `bench/table.py` turns a results directory into the table in its
-README. Results are committed under `bench/results/<date>...` with the commit
+README. The "Benchmark (Linux)" workflow runs the same script on GitHub's
+Linux runners, one job per project, when started by hand from the Actions
+tab; its results are downloaded and committed like the others. Results are
+committed under `bench/results/<date>...` with the commit
 of every project and the toolchain, so a number can be reproduced. Add new
 runs next to the old ones instead of overwriting them.
 

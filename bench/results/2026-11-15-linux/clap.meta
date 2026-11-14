@@ -1,0 +1,6 @@
+status=ok
+url=https://github.com/clap-rs/clap
+commit=ec93e71255c0b833a34f50662a3fdb22f53f6ded
+build_seconds=5
+rustc=rustc 1.100.0 (0ef1bc386 2026-11-09)
+host=x86_64-unknown-linux-gnu

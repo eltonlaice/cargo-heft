@@ -75,16 +75,18 @@ than local work.
 
 ## On real projects
 
-Eighteen well-known projects, 47.5 GB of `target/` in total, `dev` profile:
+Eighteen well-known projects, `dev` profile, Rust 1.100:
 
-| Debuginfo | Incremental cache | Metadata | of which stored twice | Code |
-|--:|--:|--:|--:|--:|
-| 31% | 21% | 17% | 8% | 30% |
+| | `target/` | Debuginfo | Incremental cache | Metadata | of which stored twice | Code |
+|---|--:|--:|--:|--:|--:|--:|
+| macOS arm64 | 47.5 GB | 31% | 21% | 17% | 8% | 30% |
+| Linux x86_64 | 53.7 GB | 25% | 34% | 15% | 7% | 24% |
 
 Per-project tables, the raw JSON and the scripts to repeat the measurements
-are in [`bench/results`](bench/results): the
-[18 projects](bench/results/2026-11-14-rust-1.100) and
-[`--what-if` on five of them](bench/results/2026-11-14-what-if).
+are in [`bench/results`](bench/results): the 18 projects on
+[macOS](bench/results/2026-11-14-rust-1.100) and on
+[Linux](bench/results/2026-11-15-linux), with what explains the difference,
+and [`--what-if` on five of them](bench/results/2026-11-14-what-if).
 
 ## How it counts
 

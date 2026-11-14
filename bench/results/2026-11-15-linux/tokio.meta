@@ -1,0 +1,6 @@
+status=ok
+url=https://github.com/tokio-rs/tokio
+commit=f3e855fa55d6c1cc3e7a28e115a421b8ee5860bd
+build_seconds=10
+rustc=rustc 1.100.0 (0ef1bc386 2026-11-09)
+host=x86_64-unknown-linux-gnu
