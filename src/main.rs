@@ -34,22 +34,34 @@ const SCENARIOS: &[(&str, &[(&str, &str)])] = &[
     ),
 ];
 
-/// What a path inside a target directory is, judged by its name so that it
-/// holds for both the classic layout and Cargo's new build-dir layout.
-fn classify(rel: &Path, executable: bool) -> &'static str {
+fn is_hash(s: &str) -> bool {
+    s.len() == 16 && s.bytes().all(|b| b.is_ascii_hexdigit())
+}
+
+/// What a path inside a target directory is. Handles both layouts:
+///
+/// - classic: `deps/`, `.fingerprint/`, `build/<pkg>-<hash>/{out,...}`
+/// - build-dir v2 (Cargo 1.100): `build/<pkg>/<hash>/{out,fingerprint,run}`,
+///   where `out` holds compiler output, or a build script's `OUT_DIR` in the
+///   unit that also has `run/` (`script_unit`).
+fn classify(rel: &Path, executable: bool, script_unit: bool) -> &'static str {
     let comps: Vec<&str> = rel.iter().filter_map(|c| c.to_str()).collect();
     let name = comps.last().copied().unwrap_or("");
     let has = |c: &str| comps.contains(&c);
     if has("incremental") {
         return "incremental";
     }
-    if has(".fingerprint") {
+    let build = comps.iter().position(|c| *c == "build");
+    let after = |n: usize| build.and_then(|i| comps.get(i + n)).copied();
+    let v2 = after(2).is_some_and(is_hash);
+    if has(".fingerprint") || (v2 && after(3) == Some("fingerprint")) {
         return "fingerprint";
     }
     if comps.iter().any(|c| c.ends_with(".dSYM")) {
         return "debuginfo (dSYM)";
     }
-    if has("build") && has("out") {
+    let classic_out = after(1).is_some_and(|c| strip_hash(c).is_some()) && after(2) == Some("out");
+    if classic_out || (v2 && (after(3) == Some("run") || script_unit)) {
         return "build script output";
     }
     if name.starts_with("build_script_") || name.starts_with("build-script-") {
@@ -76,7 +88,7 @@ fn classify(rel: &Path, executable: bool) -> &'static str {
 /// `name-<16 hex digits>` -> `name`.
 fn strip_hash(s: &str) -> Option<&str> {
     let (name, hash) = s.rsplit_once('-')?;
-    (hash.len() == 16 && hash.bytes().all(|b| b.is_ascii_hexdigit())).then_some(name)
+    is_hash(hash).then_some(name)
 }
 
 /// The crate a path belongs to, if its name says so.
@@ -89,6 +101,11 @@ fn crate_of(rel: &Path) -> Option<String> {
             .get(i + 1)
             .and_then(|c| c.rsplit_once('-'))
             .map(|(n, _)| norm(n));
+    }
+    if let Some(i) = comps.iter().position(|c| *c == "build")
+        && comps.get(i + 2).is_some_and(|h| is_hash(h))
+    {
+        return Some(norm(comps[i + 1])); // build/<pkg>/<hash>/...
     }
     for (i, comp) in comps.iter().enumerate() {
         let (stem, ext) = comp.split_once('.').unwrap_or((comp, ""));
@@ -190,7 +207,13 @@ struct File {
     executable: bool,
 }
 
-fn walk(root: &Path, dir: &Path, files: &mut Vec<File>, r: &mut Report) -> io::Result<()> {
+fn walk(
+    root: &Path,
+    dir: &Path,
+    files: &mut Vec<File>,
+    script_units: &mut HashSet<PathBuf>,
+    r: &mut Report,
+) -> io::Result<()> {
     for entry in fs::read_dir(dir)? {
         let path = entry?.path();
         let md = fs::symlink_metadata(&path)?;
@@ -198,7 +221,12 @@ fn walk(root: &Path, dir: &Path, files: &mut Vec<File>, r: &mut Report) -> io::R
         let rel = path.strip_prefix(root).unwrap_or(&path).to_path_buf();
         if md.is_dir() {
             r.add(&rel, "directories", bytes);
-            walk(root, &path, files, r)?;
+            if let (Some("run"), Some(unit)) =
+                (rel.file_name().and_then(|n| n.to_str()), rel.parent())
+            {
+                script_units.insert(unit.to_path_buf());
+            }
+            walk(root, &path, files, script_units, r)?;
         } else {
             files.push(File {
                 rel,
@@ -271,7 +299,8 @@ fn measure(root: &Path) -> io::Result<Report> {
     let mut files = Vec::new();
     let (bytes, ..) = disk_usage(&fs::symlink_metadata(root)?);
     r.add(Path::new(""), "directories", bytes);
-    walk(root, root, &mut files, &mut r)?;
+    let mut script_units = HashSet::new();
+    walk(root, root, &mut files, &mut script_units, &mut r)?;
     // rustc hard-links objects and metadata between `deps` and `incremental`.
     // Count each inode once, as the artifact outside `incremental`, so that
     // "incremental" is what deleting that directory would actually free.
@@ -283,7 +312,8 @@ fn measure(root: &Path) -> io::Result<Report> {
         if cfg!(unix) && !seen.insert(f.id) {
             continue;
         }
-        let kind = classify(&f.rel, f.executable);
+        let script_unit = f.rel.ancestors().any(|a| script_units.contains(a));
+        let kind = classify(&f.rel, f.executable, script_unit);
         r.add(&f.rel, kind, f.bytes);
         r.add_content(root, f, kind, &mut rlibs);
         if kind == "rmeta" {
@@ -515,7 +545,7 @@ mod tests {
 
     #[test]
     fn classifies_by_name() {
-        let k = |p: &str| classify(Path::new(p), false);
+        let k = |p: &str| classify(Path::new(p), false, false);
         assert_eq!(k("debug/deps/libserde-0123456789abcdef.rlib"), "rlib");
         assert_eq!(k("debug/deps/libserde-0123456789abcdef.rmeta"), "rmeta");
         assert_eq!(k("debug/deps/rg-0123456789abcdef.1x.rcgu.o"), "object file");
@@ -535,7 +565,45 @@ mod tests {
             k("debug/deps/rg-0123456789abcdef.dSYM/Contents/x"),
             "debuginfo (dSYM)"
         );
-        assert_eq!(classify(Path::new("debug/rg"), true), "binary");
+        assert_eq!(classify(Path::new("debug/rg"), true, false), "binary");
+    }
+
+    #[test]
+    fn classifies_the_v2_layout() {
+        let k = |p: &str, script| classify(Path::new(p), false, script);
+        let unit = "debug/build/dep/0123456789abcdef";
+        assert_eq!(
+            k(&format!("{unit}/out/libdep-0123456789abcdef.rlib"), false),
+            "rlib"
+        );
+        assert_eq!(
+            k(&format!("{unit}/out/libdep-0123456789abcdef.rmeta"), false),
+            "rmeta"
+        );
+        assert_eq!(
+            k(&format!("{unit}/fingerprint/lib-dep.json"), false),
+            "fingerprint"
+        );
+        assert_eq!(
+            k(&format!("{unit}/out/build_script_build"), false),
+            "build script executable"
+        );
+        assert_eq!(
+            k(&format!("{unit}/out/generated.rs"), true),
+            "build script output"
+        );
+        assert_eq!(
+            k(&format!("{unit}/run/stdout"), false),
+            "build script output"
+        );
+        assert_eq!(
+            classify(Path::new(&format!("{unit}/out/app")), true, false),
+            "binary"
+        );
+        assert_eq!(
+            crate_of(Path::new(&format!("{unit}/out/app"))).as_deref(),
+            Some("dep")
+        );
     }
 
     #[test]

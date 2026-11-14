@@ -75,7 +75,8 @@ more than local work.
 
 ## Status
 
-Early. Works on macOS and Linux.
+Early. Works on macOS and Linux, with both the classic target layout and the
+build-dir layout that Cargo 1.100 uses. Tested in CI on both systems.
 
 ## License
 

@@ -22,7 +22,9 @@ fn total_matches_du_on_a_real_build() {
         Command::new(env!("CARGO"))
             .arg("build")
             .current_dir(&fixture)
-            .env("CARGO_TARGET_DIR", &target),
+            .env("CARGO_TARGET_DIR", &target)
+            // Cargo 1.100 turns incremental off when `CI` is set.
+            .env("CARGO_INCREMENTAL", "1"),
     );
 
     let json = stdout(
@@ -51,7 +53,15 @@ fn total_matches_du_on_a_real_build() {
         kinds.values().map(|b| b.as_u64().unwrap()).sum::<u64>(),
         total
     );
-    for kind in ["rlib", "rmeta", "incremental", "binary"] {
+    for kind in [
+        "rlib",
+        "rmeta",
+        "incremental",
+        "binary",
+        "fingerprint",
+        "build script executable",
+        "build script output",
+    ] {
         assert!(
             kinds.get(kind).is_some_and(|b| b.as_u64().unwrap() > 0),
             "no {kind} in {kinds:?}"
@@ -85,7 +95,8 @@ fn what_if_measures_each_setting() {
         Command::new(env!("CARGO_BIN_EXE_cargo-heft"))
             .args(["--what-if", "--json"])
             .current_dir(&fixture)
-            .env_remove("CARGO_TARGET_DIR"),
+            .env_remove("CARGO_TARGET_DIR")
+            .env_remove("CI"),
     );
     let v: serde_json::Value = serde_json::from_str(&json).unwrap();
     let size = |name: &str| {
@@ -100,6 +111,8 @@ fn what_if_measures_each_setting() {
     };
     assert_eq!(v["scenarios"].as_array().unwrap().len(), 5);
     assert!(size("debug = false") < size("as configured"));
-    assert!(size("incremental = false") < size("as configured"));
-    assert!(size("line-tables-only, no incremental") < size("debug = \"line-tables-only\""));
+    // `<=`: where Cargo already builds without incremental, nothing changes.
+    assert!(size("incremental = false") <= size("as configured"));
+    assert!(size("line-tables-only, no incremental") <= size("debug = \"line-tables-only\""));
+    assert!(size("debug = \"line-tables-only\"") < size("as configured"));
 }
