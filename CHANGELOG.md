@@ -6,12 +6,19 @@ Notable changes to cargo-heft. The format follows
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-11-14
+
+Mostly fixes from a review of 0.1.0. It is 0.2.0 and not 0.1.1 because two
+things can break a script that worked: flags that were silently ignored are
+now errors, and one key of the JSON output was renamed.
+
 ### Added
 
 - `--version`.
 - `schema_version` in the `--json` output of both modes, starting at 1. It
   goes up when a key is removed or renamed or a value changes meaning.
 - A declared minimum supported Rust version (1.88), tested in CI.
+- `--flag=value` is accepted as well as `--flag value`.
 
 ### Fixed
 
@@ -21,7 +28,6 @@ Notable changes to cargo-heft. The format follows
   cause a panic.
 - Sizes pick their unit after rounding and show plain bytes below 1000:
   `0 B` and `1.0 MB` where it used to say `0.0 kB` and `1000.0 kB`.
-
 - The files a build script run leaves behind (`output`, `stderr`,
   `root-output`, `invoked.timestamp`) count as build script output in the
   classic layout too, as they already did in the build-dir v2 layout. They
@@ -42,7 +48,6 @@ Notable changes to cargo-heft. The format follows
 - Flags that would have been ignored are now errors: `--profile` and
   arguments after `--` without `--what-if`, and `--target-dir` and `--top`
   with it.
-- `--flag=value` is accepted as well as `--flag value`.
 - A bad or missing value for `--top` is named in the error.
 - A target directory that does not exist is reported as nothing to measure,
   with a hint to build first, instead of a raw OS error.
@@ -64,5 +69,6 @@ First release.
 - Support for the classic target layout and the build-dir v2 layout of
   Cargo 1.100.
 
-[Unreleased]: https://github.com/eltonlaice/cargo-heft/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/eltonlaice/cargo-heft/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/eltonlaice/cargo-heft/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/eltonlaice/cargo-heft/releases/tag/v0.1.0
