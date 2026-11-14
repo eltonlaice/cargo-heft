@@ -1,5 +1,8 @@
 # cargo-heft
 
+[![CI](https://github.com/eltonlaice/cargo-heft/actions/workflows/ci.yml/badge.svg)](https://github.com/eltonlaice/cargo-heft/actions/workflows/ci.yml)
+[![crates.io](https://img.shields.io/crates/v/cargo-heft.svg)](https://crates.io/crates/cargo-heft)
+
 Shows where the bytes of a Cargo `target/` directory go.
 
 ```
@@ -77,6 +80,11 @@ more than local work.
 
 Early. Works on macOS and Linux, with both the classic target layout and the
 build-dir layout that Cargo 1.100 uses. Tested in CI on both systems.
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md). Changes are listed in
+[CHANGELOG.md](CHANGELOG.md).
 
 ## License
 
