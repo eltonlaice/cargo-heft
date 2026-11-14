@@ -36,6 +36,7 @@ Notable changes to cargo-heft. The format follows
 
 ### Changed
 
+- `--help` starts with a one-line description of the tool.
 - A target directory that does not exist is reported as nothing to measure,
   with a hint to build first, instead of a raw OS error.
 

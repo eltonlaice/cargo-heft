@@ -1,4 +1,4 @@
-//! cargo-heft: where the bytes of a Cargo target directory go.
+//! cargo-heft: find out what takes up space in a Cargo target directory.
 //!
 //! Sizes are on-disk (allocated blocks), every inode is counted once, and
 //! directories are included, so the total matches `du -s`.
@@ -565,7 +565,7 @@ fn run() -> Result<(), String> {
                 return Ok(());
             }
             "-h" | "--help" => {
-                say!("{USAGE}");
+                say!("{}\n\n{USAGE}", env!("CARGO_PKG_DESCRIPTION"));
                 return Ok(());
             }
             _ => {
