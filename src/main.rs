@@ -4,9 +4,25 @@
 //! directories are included, so the total matches `du -s`.
 
 use std::collections::{BTreeMap, HashSet};
+use std::ffi::OsString;
+use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode};
 use std::{env, fs, io};
+
+/// `println!` for a program whose reader may go away: `cargo heft | head`
+/// closes the pipe early, and that is a normal way to end, not a panic.
+macro_rules! say {
+    ($($arg:tt)*) => {
+        if let Err(e) = writeln!(io::stdout(), $($arg)*) {
+            if e.kind() != io::ErrorKind::BrokenPipe {
+                eprintln!("cargo-heft: cannot write to stdout: {e}");
+                std::process::exit(1);
+            }
+            std::process::exit(0);
+        }
+    };
+}
 
 const USAGE: &str = "\
 Usage: cargo heft [--target-dir <DIR>] [--top <N>] [--json]
@@ -349,7 +365,7 @@ impl Drop for Scratch {
     }
 }
 
-fn what_if(profile: &str, extra: &[String], json: bool) -> Result<(), String> {
+fn what_if(profile: &str, extra: &[OsString], json: bool) -> Result<(), String> {
     let scratch = Scratch(env::temp_dir().join(format!("cargo-heft-{}", std::process::id())));
     let _ = cargo().arg("fetch").output(); // keep downloads out of the first timing
     let prefix = format!(
@@ -385,6 +401,7 @@ fn what_if(profile: &str, extra: &[String], json: bool) -> Result<(), String> {
         let _ = fs::remove_dir_all(&dir); // one build on disk at a time
         rows.push((*name, *settings, total, seconds));
     }
+    drop(scratch); // before printing: a closed pipe ends the process at once
     if json {
         let scenarios: Vec<_> = rows
             .iter()
@@ -393,17 +410,20 @@ fn what_if(profile: &str, extra: &[String], json: bool) -> Result<(), String> {
                 serde_json::json!({ "name": name, "settings": settings, "total_bytes": total, "build_seconds": seconds })
             })
             .collect();
-        println!(
+        say!(
             "{:#}",
             serde_json::json!({ "profile": profile, "scenarios": scenarios })
         );
         return Ok(());
     }
     let base = rows[0].2;
-    println!("fresh `{profile}` builds, settings as they would go in [profile.{profile}]\n");
-    println!(
+    say!("fresh `{profile}` builds, settings as they would go in [profile.{profile}]\n");
+    say!(
         "  {:<34} {:>10} {:>9} {:>8}",
-        "setting", "size", "vs first", "build"
+        "setting",
+        "size",
+        "vs first",
+        "build"
     );
     for (name, _, total, seconds) in &rows {
         let delta = if *total == base || base == 0 {
@@ -414,16 +434,14 @@ fn what_if(profile: &str, extra: &[String], json: bool) -> Result<(), String> {
                 100.0 * (*total as f64 - base as f64) / base as f64
             )
         };
-        println!(
+        say!(
             "  {name:<34} {:>10} {delta:>9} {seconds:>7.1}s",
             human(*total)
         );
     }
-    println!(
-        "\n  note: these are builds from scratch. `incremental = false` makes rebuilds after an"
-    );
-    println!("  edit slower, so it suits CI more than local work. Less debuginfo means a debugger");
-    println!("  shows less: `line-tables-only` keeps backtraces with file and line.");
+    say!("\n  note: these are builds from scratch. `incremental = false` makes rebuilds after an");
+    say!("  edit slower, so it suits CI more than local work. Less debuginfo means a debugger");
+    say!("  shows less: `line-tables-only` keeps backtraces with file and line.");
     Ok(())
 }
 
@@ -446,12 +464,19 @@ fn default_target_dir() -> Result<PathBuf, String> {
         .ok_or_else(|| "no target_directory".into())
 }
 
+/// Decimal units (1 kB = 1000 bytes). The unit is picked after rounding, so
+/// 999 999 bytes is "1.0 MB" and not "1000.0 kB".
 fn human(bytes: u64) -> String {
-    let b = bytes as f64;
-    match bytes {
-        0..1_000_000 => format!("{:.1} kB", b / 1e3),
-        1_000_000..1_000_000_000 => format!("{:.1} MB", b / 1e6),
-        _ => format!("{:.2} GB", b / 1e9),
+    if bytes < 1000 {
+        return format!("{bytes} B");
+    }
+    let kb = bytes as f64 / 1e3;
+    if kb < 999.95 {
+        format!("{kb:.1} kB")
+    } else if kb / 1e3 < 999.95 {
+        format!("{:.1} MB", kb / 1e3)
+    } else {
+        format!("{:.2} GB", kb / 1e6)
     }
 }
 
@@ -462,41 +487,52 @@ fn sorted(m: &BTreeMap<String, u64>) -> Vec<(&String, &u64)> {
 }
 
 fn print_table(title: &str, m: &BTreeMap<String, u64>, total: u64, top: usize) {
-    println!("\n{title}");
+    say!("\n{title}");
     for (name, bytes) in sorted(m).into_iter().take(top) {
         let pct = if total == 0 {
             0.0
         } else {
             100.0 * *bytes as f64 / total as f64
         };
-        println!("  {name:<28} {:>12} {pct:>6.1}%", human(*bytes));
+        say!("  {name:<28} {:>12} {pct:>6.1}%", human(*bytes));
     }
 }
 
 fn run() -> Result<(), String> {
-    let mut args = env::args().skip(1).peekable();
-    if args.peek().map(String::as_str) == Some("heft") {
+    // `args_os`: paths need not be UTF-8, and `env::args` panics on those.
+    let mut args = env::args_os().skip(1).peekable();
+    if args.peek().is_some_and(|a| a == "heft") {
         args.next(); // invoked as `cargo heft`
     }
+    let text = |a: Option<OsString>| a.and_then(|a| a.into_string().ok());
     let (mut target, mut top, mut json) = (None, 15usize, false);
     let (mut whatif, mut profile, mut extra) = (false, "dev".to_string(), Vec::new());
     while let Some(a) = args.next() {
-        match a.as_str() {
+        match a.to_str().unwrap_or("") {
             "--target-dir" => target = Some(PathBuf::from(args.next().ok_or(USAGE)?)),
-            "--top" => top = args.next().and_then(|n| n.parse().ok()).ok_or(USAGE)?,
+            "--top" => {
+                top = text(args.next())
+                    .and_then(|n| n.parse().ok())
+                    .ok_or(USAGE)?
+            }
             "--json" => json = true,
             "--what-if" => whatif = true,
-            "--profile" => profile = args.next().ok_or(USAGE)?,
+            "--profile" => profile = text(args.next()).ok_or(USAGE)?,
             "--" => extra.extend(args.by_ref()),
             "-V" | "--version" => {
-                println!("cargo-heft {}", env!("CARGO_PKG_VERSION"));
+                say!("cargo-heft {}", env!("CARGO_PKG_VERSION"));
                 return Ok(());
             }
             "-h" | "--help" => {
-                println!("{USAGE}");
+                say!("{USAGE}");
                 return Ok(());
             }
-            _ => return Err(format!("unknown argument `{a}`\n{USAGE}")),
+            _ => {
+                return Err(format!(
+                    "unknown argument `{}`\n{USAGE}",
+                    a.to_string_lossy()
+                ));
+            }
         }
     }
     if whatif {
@@ -520,7 +556,7 @@ fn run() -> Result<(), String> {
     let r = measure(&target).map_err(|e| format!("{}: {e}", target.display()))?;
     if json {
         let out = serde_json::json!({
-            "target_dir": target,
+            "target_dir": target.to_string_lossy(),
             "total_bytes": r.total,
             "by_kind": r.by_kind,
             "by_content": r.by_content,
@@ -528,13 +564,13 @@ fn run() -> Result<(), String> {
             "by_profile": r.by_profile,
             "by_crate": r.by_crate,
         });
-        println!("{out:#}");
+        say!("{out:#}");
     } else {
-        println!("{}: {} on disk", target.display(), human(r.total));
+        say!("{}: {} on disk", target.display(), human(r.total));
         print_table("by kind", &r.by_kind, r.total, usize::MAX);
         print_table("by content", &r.by_content, r.total, usize::MAX);
         if r.duplicated_metadata > 0 {
-            println!(
+            say!(
                 "  note: {} of metadata is stored twice, as a .rmeta file and inside its .rlib",
                 human(r.duplicated_metadata)
             );
@@ -620,6 +656,18 @@ mod tests {
             crate_of(Path::new(&format!("{unit}/out/app"))).as_deref(),
             Some("dep")
         );
+    }
+
+    #[test]
+    fn human_picks_the_unit_after_rounding() {
+        assert_eq!(human(0), "0 B");
+        assert_eq!(human(999), "999 B");
+        assert_eq!(human(1000), "1.0 kB");
+        assert_eq!(human(999_949), "999.9 kB");
+        assert_eq!(human(999_999), "1.0 MB");
+        assert_eq!(human(313_800_000), "313.8 MB");
+        assert_eq!(human(999_999_999), "1.00 GB");
+        assert_eq!(human(47_500_000_000), "47.50 GB");
     }
 
     #[test]
