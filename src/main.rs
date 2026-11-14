@@ -815,4 +815,250 @@ mod tests {
             Some("(build scripts)")
         );
     }
+
+    #[test]
+    fn hashes_are_exactly_sixteen_hex_digits() {
+        assert!(is_hash("0123456789abcdef"));
+        assert!(is_hash("ABCDEF0123456789"));
+        assert!(!is_hash(""));
+        assert!(!is_hash("0123456789abcde"));
+        assert!(!is_hash("0123456789abcdef0"));
+        assert!(!is_hash("0123456789abcdeg"));
+        assert!(!is_hash("0123456789abcde-"));
+    }
+
+    #[test]
+    fn strip_hash_keeps_everything_before_the_last_dash() {
+        assert_eq!(strip_hash("foo-0123456789abcdef"), Some("foo"));
+        assert_eq!(strip_hash("foo-bar-0123456789abcdef"), Some("foo-bar"));
+        assert_eq!(
+            strip_hash("libserde_json-0123456789abcdef"),
+            Some("libserde_json")
+        );
+        assert_eq!(strip_hash("foo"), None);
+        assert_eq!(strip_hash("foo-0123456789abcde"), None);
+        assert_eq!(strip_hash("0123456789abcdef"), None);
+        assert_eq!(strip_hash("-0123456789abcdef"), Some(""));
+    }
+
+    #[test]
+    fn classifies_every_known_artifact_kind() {
+        let k = |p: &str| classify(Path::new(p), false, false);
+        let cases = [
+            ("release/deps/libserde-0123456789abcdef.rlib", "rlib"),
+            ("release/deps/libserde-0123456789abcdef.rmeta", "rmeta"),
+            ("release/deps/app-0123456789abcdef.d", "dep-info"),
+            ("release/deps/app-0123456789abcdef.1x.rcgu.o", "object file"),
+            ("release/deps/libfoo-0123456789abcdef.dylib", "dylib"),
+            ("release/deps/libfoo-0123456789abcdef.so", "dylib"),
+            ("release/deps/foo-0123456789abcdef.dll", "dylib"),
+            ("release/deps/foo-0123456789abcdef.exe", "binary"),
+            (
+                "release/deps/foo-0123456789abcdef.dwo",
+                "debuginfo (split DWARF)",
+            ),
+            (
+                "release/deps/foo-0123456789abcdef.dwp",
+                "debuginfo (split DWARF)",
+            ),
+            (
+                "release/deps/foo-0123456789abcdef.dSYM/Contents/Resources/DWARF/foo",
+                "debuginfo (dSYM)",
+            ),
+            ("doc/foo/index.html", "doc"),
+            ("package/foo.crate", "package"),
+            (
+                "release/.fingerprint/foo-0123456789abcdef/lib-foo.json",
+                "fingerprint",
+            ),
+            (
+                "release/incremental/foo-2k1x9/s-a-b/dep-graph.bin",
+                "incremental",
+            ),
+            (
+                "release/build/foo-0123456789abcdef/out/generated.rs",
+                "build script output",
+            ),
+            (
+                "release/build/foo-0123456789abcdef/build_script_build-0123456789abcdef",
+                "build script executable",
+            ),
+            (
+                "release/build/foo-0123456789abcdef/build-script-build",
+                "build script executable",
+            ),
+            ("release/deps/notes-0123456789abcdef", "other"),
+            ("CACHEDIR.TAG", "other"),
+        ];
+        for (path, kind) in cases {
+            assert_eq!(k(path), kind, "{path}");
+        }
+        assert_eq!(
+            classify(
+                Path::new("release/deps/runner-0123456789abcdef"),
+                true,
+                false
+            ),
+            "binary",
+            "a file with no extension is a binary when it is executable"
+        );
+    }
+
+    #[test]
+    fn classifies_the_v2_units_by_what_the_unit_is() {
+        let unit = "debug/build/dep/0123456789abcdef";
+        let k = |p: &str, script| classify(Path::new(p), false, script);
+        assert_eq!(
+            k(&format!("{unit}/out/libdep-0123456789abcdef.rlib"), false),
+            "rlib"
+        );
+        assert_eq!(
+            k(&format!("{unit}/out/libdep-0123456789abcdef.rmeta"), false),
+            "rmeta"
+        );
+        assert_eq!(
+            k(&format!("{unit}/out/dep-0123456789abcdef.1x.rcgu.o"), false),
+            "object file"
+        );
+        assert_eq!(
+            k(&format!("{unit}/fingerprint/lib-dep.json"), false),
+            "fingerprint"
+        );
+        assert_eq!(
+            k(&format!("{unit}/out/generated.rs"), true),
+            "build script output"
+        );
+        assert_eq!(
+            k(&format!("{unit}/run/stdout"), false),
+            "build script output"
+        );
+        assert_eq!(
+            k(&format!("{unit}/out/build_script_build"), false),
+            "build script executable"
+        );
+    }
+
+    #[test]
+    fn names_the_crate_in_both_layouts() {
+        let c = |p: &str| crate_of(Path::new(p));
+        assert_eq!(
+            c("debug/build/dep/0123456789abcdef/out/libdep-0123456789abcdef.rlib").as_deref(),
+            Some("dep")
+        );
+        assert_eq!(
+            c("debug/build/dep/0123456789abcdef/run/stdout").as_deref(),
+            Some("dep")
+        );
+        assert_eq!(
+            c("debug/deps/libstatic-0123456789abcdef.a").as_deref(),
+            Some("static")
+        );
+        assert_eq!(
+            c("debug/.fingerprint/serde_json-0123456789abcdef/lib-serde_json.json").as_deref(),
+            Some("serde_json")
+        );
+        assert_eq!(c("doc/foo/index.html"), None);
+        assert_eq!(c("CACHEDIR.TAG"), None);
+    }
+
+    #[test]
+    fn a_report_accounts_for_each_added_path_once() {
+        let mut r = Report::default();
+        let profiles = HashSet::from([Path::new("debug")]);
+        r.add(Path::new(""), "directories", 4096, &profiles);
+        r.add(
+            Path::new("debug/deps/libfoo-0123456789abcdef.rlib"),
+            "rlib",
+            8192,
+            &profiles,
+        );
+        r.add(
+            Path::new("debug/deps/notes-0123456789abcdef.txt"),
+            "other",
+            1024,
+            &profiles,
+        );
+
+        assert_eq!(r.total, 13_312);
+        assert_eq!(r.by_kind["rlib"], 8192);
+        assert_eq!(r.by_kind["other"], 1024);
+        assert_eq!(r.by_profile["(not in a profile)"], 4096);
+        assert_eq!(r.by_profile["debug"], 9216);
+        assert_eq!(r.by_crate["foo"], 8192);
+        assert_eq!(r.by_crate["notes"], 1024);
+        assert_eq!(r.by_crate.len(), 2);
+    }
+
+    #[test]
+    fn sorts_by_size_then_by_name() {
+        let m = BTreeMap::from([
+            ("b".to_string(), 2),
+            ("a".to_string(), 2),
+            ("c".to_string(), 3),
+        ]);
+        let names: Vec<&str> = sorted(&m).iter().map(|(name, _)| name.as_str()).collect();
+        assert_eq!(names, ["c", "a", "b"]);
+    }
+
+    /// A GNU `ar` header is 60 bytes: name, mtime, uid, gid, mode, size, magic.
+    fn ar_header(name: &str, len: usize) -> [u8; 60] {
+        let fields = [
+            format!("{name}/"),
+            "0".to_string(),
+            "0".to_string(),
+            "0".to_string(),
+            "100644".to_string(),
+            len.to_string(),
+        ];
+        let widths = [16, 12, 6, 6, 8, 10];
+        let mut header = [b' '; 60];
+        let mut offset = 0;
+        for (field, width) in fields.iter().zip(widths) {
+            assert!(field.len() <= width);
+            header[offset..offset + field.len()].copy_from_slice(field.as_bytes());
+            offset += width;
+        }
+        header[58] = b'`';
+        header[59] = b'\n';
+        header
+    }
+
+    fn archive(members: &[(&str, &[u8])]) -> Vec<u8> {
+        let mut out = b"!<arch>\n".to_vec();
+        for &(name, data) in members {
+            out.extend_from_slice(&ar_header(name, data.len()));
+            out.extend_from_slice(data);
+            if data.len() % 2 == 1 {
+                out.push(b'\n');
+            }
+        }
+        out
+    }
+
+    #[test]
+    fn reads_metadata_out_of_an_rlib_archive() {
+        let data = archive(&[("lib.rmeta", &[0xab; 100]), ("object", &[0; 13])]);
+        let p = parts(&data, true);
+        assert_eq!(p.metadata, 100);
+        assert_eq!(p.debuginfo, 0);
+
+        // The same bytes are not an rlib when the caller says so: the archive
+        // is then parsed as an object file, which fails harmlessly.
+        let p = parts(&data, false);
+        assert_eq!(p.metadata, 0);
+        assert_eq!(p.debuginfo, 0);
+    }
+
+    #[test]
+    fn ignores_bytes_that_are_not_an_object_or_an_archive() {
+        for data in [&b""[..], &b"not an object file"[..], &[0u8; 64][..]] {
+            let p = parts(data, false);
+            assert_eq!(p.metadata, 0);
+            assert_eq!(p.debuginfo, 0);
+        }
+        let mut p = Parts::default();
+        object_parts(&[0u8; 17], &mut p);
+        assert_eq!(p.metadata, 0);
+        assert_eq!(p.debuginfo, 0);
+    }
 }

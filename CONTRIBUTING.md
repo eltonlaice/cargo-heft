@@ -24,10 +24,20 @@ cargo test
 CI runs the same three on Linux and macOS with stable Rust, and on Linux with
 the minimum supported Rust version (`rust-version` in `Cargo.toml`).
 
-`cargo test` builds the small workspace in `tests/fixture` into a scratch
-directory and measures it, so the first run takes a few seconds. The fixture
-has a library, a binary and a build script on purpose: between them they
-produce every kind of artifact the tool classifies.
+The tests drive the compiled binary as a black box:
+
+- `tests/du.rs` builds the small workspace in `tests/fixture` for real and
+  measures it, including `--what-if`. It takes a few seconds.
+- `tests/measure.rs` and `tests/property.rs` build target directories by hand,
+  in both layouts, with hard links and symlinks, and check that every view
+  adds up to the total and the total to `du`.
+- `tests/cli.rs` pins the command line: flags, errors and exit codes.
+- Unit tests in `src/main.rs` pin how single paths are classified.
+
+`tests/common` has the helpers; `assert_consistent` is the one to call on
+any new JSON report. The fixture has a library, a binary and a build script
+on purpose: between them they produce every kind of artifact the tool
+classifies.
 
 ## When a change moves a number
 
