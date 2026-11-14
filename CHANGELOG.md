@@ -11,6 +11,11 @@ Notable changes to cargo-heft. The format follows
 - `--version`.
 - A declared minimum supported Rust version (1.88), tested in CI.
 
+### Changed
+
+- A target directory that does not exist is reported as nothing to measure,
+  with a hint to build first, instead of a raw OS error.
+
 ## [0.1.0] - 2026-11-14
 
 First release.

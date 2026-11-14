@@ -116,3 +116,18 @@ fn what_if_measures_each_setting() {
     assert!(size("line-tables-only, no incremental") <= size("debug = \"line-tables-only\""));
     assert!(size("debug = \"line-tables-only\"") < size("as configured"));
 }
+
+#[test]
+fn a_missing_target_dir_is_explained() {
+    let missing = Path::new(env!("CARGO_TARGET_TMPDIR")).join("never-built");
+    let out = Command::new(env!("CARGO_BIN_EXE_cargo-heft"))
+        .arg("--target-dir")
+        .arg(&missing)
+        .output()
+        .unwrap();
+    assert!(!out.status.success());
+    let stderr = String::from_utf8(out.stderr).unwrap();
+    assert!(stderr.contains("does not exist"), "{stderr}");
+    assert!(stderr.contains("cargo build"), "{stderr}");
+    assert!(!stderr.contains("os error"), "{stderr}");
+}
