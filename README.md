@@ -3,7 +3,7 @@
 Shows where the bytes of a Cargo `target/` directory go.
 
 ```
-cargo install --path .
+cargo install cargo-heft
 cargo heft
 ```
 

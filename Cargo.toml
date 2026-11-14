@@ -7,6 +7,8 @@ license = "MIT OR Apache-2.0"
 repository = "https://github.com/eltonlaice/cargo-heft"
 keywords = ["cargo", "subcommand", "target", "disk", "size"]
 categories = ["development-tools::cargo-plugins"]
+readme = "README.md"
+exclude = ["bench/", ".github/", "tests/"]
 
 [dependencies]
 object = { version = "0.41", default-features = false, features = ["read_core", "archive", "elf", "macho", "coff"] }
