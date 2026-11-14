@@ -11,6 +11,15 @@ Notable changes to cargo-heft. The format follows
 - `--version`.
 - A declared minimum supported Rust version (1.88), tested in CI.
 
+### Fixed
+
+- An argument that is not valid UTF-8, such as a path, is handled as a path
+  instead of ending in a panic.
+- `cargo heft | head` and other readers that close the pipe early no longer
+  cause a panic.
+- Sizes pick their unit after rounding and show plain bytes below 1000:
+  `0 B` and `1.0 MB` where it used to say `0.0 kB` and `1000.0 kB`.
+
 ### Changed
 
 - A target directory that does not exist is reported as nothing to measure,

@@ -131,3 +131,62 @@ fn a_missing_target_dir_is_explained() {
     assert!(stderr.contains("cargo build"), "{stderr}");
     assert!(!stderr.contains("os error"), "{stderr}");
 }
+
+#[cfg(unix)]
+#[test]
+fn a_path_that_is_not_utf8_is_an_error_not_a_panic() {
+    use std::ffi::OsStr;
+    use std::os::unix::ffi::OsStrExt;
+    for extra in [&[][..], &["--json"][..]] {
+        let out = Command::new(env!("CARGO_BIN_EXE_cargo-heft"))
+            .arg("--target-dir")
+            .arg(OsStr::from_bytes(b"no-such-\xff"))
+            .args(extra)
+            .output()
+            .unwrap();
+        assert_eq!(out.status.code(), Some(1), "{out:?}");
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        assert!(stderr.contains("nothing to measure"), "{stderr}");
+        assert!(!stderr.contains("panicked"), "{stderr}");
+    }
+    // The flag itself can be garbage too.
+    let out = Command::new(env!("CARGO_BIN_EXE_cargo-heft"))
+        .arg(OsStr::from_bytes(b"--\xff"))
+        .output()
+        .unwrap();
+    assert_eq!(out.status.code(), Some(1), "{out:?}");
+    assert!(String::from_utf8_lossy(&out.stderr).contains("unknown argument"));
+}
+
+#[test]
+fn a_reader_that_leaves_early_is_not_a_panic() {
+    use std::io::Read;
+    use std::process::Stdio;
+    // Enough entries that the output does not fit in a pipe buffer.
+    let target = Path::new(env!("CARGO_TARGET_TMPDIR")).join("many-crates");
+    let deps = target.join("debug/deps");
+    std::fs::create_dir_all(&deps).unwrap();
+    for i in 0..6000 {
+        std::fs::write(
+            deps.join(format!("libcrate{i:05}-0123456789abcdef.rmeta")),
+            b"",
+        )
+        .unwrap();
+    }
+    for mode in [&["--json"][..], &["--top", "100000"][..]] {
+        let mut child = Command::new(env!("CARGO_BIN_EXE_cargo-heft"))
+            .arg("--target-dir")
+            .arg(&target)
+            .args(mode)
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap();
+        let mut first = [0u8; 64];
+        child.stdout.take().unwrap().read_exact(&mut first).unwrap(); // then hang up
+        let out = child.wait_with_output().unwrap();
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        assert!(out.status.success(), "{mode:?}: {:?} {stderr}", out.status);
+        assert!(stderr.is_empty(), "{stderr}");
+    }
+}

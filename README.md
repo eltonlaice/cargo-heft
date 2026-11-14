@@ -37,6 +37,8 @@ by content
 ## What the numbers mean
 
 - Sizes are on-disk: allocated blocks, not file lengths. The total matches `du -s`.
+  Units are decimal (1 MB = 1 000 000 bytes), so the figure reads lower than
+  `du -h`, which counts in units of 1024.
 - Every inode is counted once. rustc hard-links object files and metadata
   between `deps/` and `incremental/`; a shared file is counted as the artifact
   in `deps/`, so `incremental` is what deleting that directory would free.
