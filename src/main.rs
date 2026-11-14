@@ -384,8 +384,8 @@ fn what_if(profile: &str, extra: &[String], json: bool) -> Result<(), String> {
             )
         };
         println!(
-            "  {name:<34} {:>7.1} MB {delta:>9} {seconds:>7.1}s",
-            *total as f64 / 1e6
+            "  {name:<34} {:>10} {delta:>9} {seconds:>7.1}s",
+            human(*total)
         );
     }
     println!(
@@ -415,6 +415,15 @@ fn default_target_dir() -> Result<PathBuf, String> {
         .ok_or_else(|| "no target_directory".into())
 }
 
+fn human(bytes: u64) -> String {
+    let b = bytes as f64;
+    match bytes {
+        0..1_000_000 => format!("{:.1} kB", b / 1e3),
+        1_000_000..1_000_000_000 => format!("{:.1} MB", b / 1e6),
+        _ => format!("{:.2} GB", b / 1e9),
+    }
+}
+
 fn sorted(m: &BTreeMap<String, u64>) -> Vec<(&String, &u64)> {
     let mut v: Vec<_> = m.iter().collect();
     v.sort_by(|a, b| b.1.cmp(a.1).then(a.0.cmp(b.0)));
@@ -429,7 +438,7 @@ fn print_table(title: &str, m: &BTreeMap<String, u64>, total: u64, top: usize) {
         } else {
             100.0 * *bytes as f64 / total as f64
         };
-        println!("  {name:<28} {:>9.1} MB {pct:>6.1}%", *bytes as f64 / 1e6);
+        println!("  {name:<28} {:>12} {pct:>6.1}%", human(*bytes));
     }
 }
 
@@ -475,17 +484,13 @@ fn run() -> Result<(), String> {
         });
         println!("{out:#}");
     } else {
-        println!(
-            "{}: {:.1} MB on disk",
-            target.display(),
-            r.total as f64 / 1e6
-        );
+        println!("{}: {} on disk", target.display(), human(r.total));
         print_table("by kind", &r.by_kind, r.total, usize::MAX);
         print_table("by content", &r.by_content, r.total, usize::MAX);
         if r.duplicated_metadata > 0 {
             println!(
-                "  note: {:.1} MB of metadata is stored twice, as a .rmeta file and inside its .rlib",
-                r.duplicated_metadata as f64 / 1e6
+                "  note: {} of metadata is stored twice, as a .rmeta file and inside its .rlib",
+                human(r.duplicated_metadata)
             );
         }
         print_table("by profile", &r.by_profile, r.total, usize::MAX);
