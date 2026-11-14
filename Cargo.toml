@@ -8,6 +8,7 @@ repository = "https://github.com/eltonlaice/cargo-heft"
 keywords = ["cargo", "subcommand", "target", "disk", "size"]
 categories = ["development-tools::cargo-plugins"]
 readme = "README.md"
+rust-version = "1.88"
 exclude = ["bench/", ".github/", "tests/"]
 
 [dependencies]

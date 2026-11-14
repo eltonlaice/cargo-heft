@@ -17,7 +17,8 @@ Usage: cargo heft [--target-dir <DIR>] [--top <N>] [--json]
   --json              machine-readable output
   --what-if           build this workspace from scratch once per profile setting,
                       in a temporary directory, and compare the sizes
-  --profile <NAME>    profile for --what-if (default: dev)";
+  --profile <NAME>    profile for --what-if (default: dev)
+  -V, --version       print the version";
 
 /// Profile settings `--what-if` tries, as (key, value) pairs of `[profile.*]`.
 const SCENARIOS: &[(&str, &[(&str, &str)])] = &[
@@ -487,6 +488,10 @@ fn run() -> Result<(), String> {
             "--what-if" => whatif = true,
             "--profile" => profile = args.next().ok_or(USAGE)?,
             "--" => extra.extend(args.by_ref()),
+            "-V" | "--version" => {
+                println!("cargo-heft {}", env!("CARGO_PKG_VERSION"));
+                return Ok(());
+            }
             "-h" | "--help" => {
                 println!("{USAGE}");
                 return Ok(());
