@@ -1,0 +1,6 @@
+status=ok
+url=https://github.com/rust-lang/cargo
+commit=382ecb8707b82592bb7176ba62b07590c29dee35
+build_seconds=81
+rustc=rustc 1.100.0 (0ef1bc386 2026-11-09)
+host=aarch64-apple-darwin

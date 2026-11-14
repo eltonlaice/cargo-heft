@@ -1,0 +1,6 @@
+status=ok
+url=https://github.com/quickwit-oss/tantivy
+commit=2ad36b4fd0c00ded047b12295423250d8d4d713b
+build_seconds=30
+rustc=rustc 1.100.0 (0ef1bc386 2026-11-09)
+host=aarch64-apple-darwin

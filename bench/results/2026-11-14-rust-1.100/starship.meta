@@ -1,0 +1,6 @@
+status=ok
+url=https://github.com/starship/starship
+commit=d128ba875f4ce86ba5c65a59bdd0133c6dded4c7
+build_seconds=54
+rustc=rustc 1.100.0 (0ef1bc386 2026-11-09)
+host=aarch64-apple-darwin

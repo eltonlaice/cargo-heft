@@ -1,4 +1,7 @@
-# Target directory sizes of 17 Rust projects, 14 Nov 2026
+# Target directory sizes of 17 Rust projects, Rust 1.99.1
+
+The same projects measured with Rust 1.100 are in
+[`../2026-11-14-rust-1.100`](../2026-11-14-rust-1.100).
 
 Each project was cloned at the commit shown, built from scratch with
 `cargo +stable build` (the `dev` profile, as the project configures it) and

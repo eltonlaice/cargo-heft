@@ -1,5 +1,6 @@
 #!/bin/sh
-# Builds well-known Rust projects from scratch (dev profile, stable toolchain)
+# Builds well-known Rust projects from scratch (dev profile; toolchain from
+# $TOOLCHAIN, default stable)
 # and measures each target directory with cargo-heft.
 #
 #   bench/run.sh <work-dir> <out-dir>
@@ -8,6 +9,7 @@
 # the build time and the toolchain. The target directory is removed after
 # measuring, so only one is on disk at a time.
 set -u
+tc=${TOOLCHAIN:-stable}
 work=$1 out=$2
 heft=$(cd "$(dirname "$0")/.." && pwd)/target/release/cargo-heft
 mkdir -p "$work" "$out"
@@ -19,7 +21,7 @@ while read -r name url; do
     src=$work/$name target=$work/target-$name
     [ -d "$src" ] || git clone -q --depth 1 "$url" "$src" || { echo "status=clone-failed" > "$out/$name.meta"; continue; }
     start=$(date +%s)
-    if (cd "$src" && CARGO_TARGET_DIR=$target cargo +stable build >"$out/$name.log" 2>&1); then
+    if (cd "$src" && CARGO_TARGET_DIR=$target cargo "+$tc" build >"$out/$name.log" 2>&1); then
         (cd "$work" && "$heft" --json --target-dir "target-$name") > "$out/$name.json"
         status=ok
     else
@@ -30,8 +32,8 @@ while read -r name url; do
         echo "url=$url"
         echo "commit=$(git -C "$src" rev-parse HEAD)"
         echo "build_seconds=$(($(date +%s) - start))"
-        echo "rustc=$(rustc +stable --version)"
-        echo "host=$(rustc +stable -vV | sed -n 's/^host: //p')"
+        echo "rustc=$(rustc "+$tc" --version)"
+        echo "host=$(rustc "+$tc" -vV | sed -n 's/^host: //p')"
     } > "$out/$name.meta"
     rm -rf "$target"
     echo "$name $status"
