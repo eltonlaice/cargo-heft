@@ -5,3 +5,9 @@ edition = "2024"
 
 [dependencies]
 dep = { path = "../dep" }
+
+# Named differently from the package on purpose: the tool has to list the
+# binary under `app`, not as a crate called `fx`.
+[[bin]]
+name = "fx"
+path = "src/main.rs"

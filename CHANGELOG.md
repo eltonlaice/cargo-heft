@@ -6,6 +6,12 @@ Notable changes to cargo-heft. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- A target whose name differs from its package, such as the `rg` binary of
+  `ripgrep`, is listed under the package. In the build-dir v2 layout it
+  appeared twice in "largest crates", once under each name.
+
 ## [0.2.0] - 2026-11-14
 
 Mostly fixes from a review of 0.1.0. It is 0.2.0 and not 0.1.1 because two
