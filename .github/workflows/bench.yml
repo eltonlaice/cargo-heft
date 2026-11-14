@@ -1,0 +1,83 @@
+name: Benchmark (Linux)
+
+# Measures the benchmark projects on a Linux runner, one job per project, at
+# the commits of an earlier run. Results are uploaded as artifacts; they are
+# committed by hand under bench/results.
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - .github/workflows/bench.yml
+      - bench/run.sh
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  TOOLCHAIN: "1.100.0"
+  PIN_DIR: bench/results/2026-11-14-rust-1.100
+  # Cargo 1.100 turns incremental off when CI is set. A developer's build has
+  # it on, and that is what the macOS runs measured.
+  CARGO_INCREMENTAL: "1"
+
+jobs:
+  measure:
+    name: ${{ matrix.project }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        project:
+          - ripgrep
+          - fd
+          - bat
+          - hyperfine
+          - starship
+          - alacritty
+          - zola
+          - tokio
+          - axum
+          - clap
+          - tantivy
+          - cargo
+          - rust-analyzer
+          - typst
+          - nushell
+          - ruff
+          - uv
+          - wasmtime
+    env:
+      ONLY: ${{ matrix.project }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Make room for the large target directories
+        run: |
+          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/lib/android /opt/hostedtoolcache/CodeQL
+          df -h / | tail -1
+      - name: System libraries some projects link against
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q cmake pkg-config libfreetype6-dev libfontconfig1-dev libxcb-xfixes0-dev libxkbcommon-dev libssl-dev
+      - run: rustup toolchain install "$TOOLCHAIN" --profile minimal && rustup default "$TOOLCHAIN"
+      - run: cargo build --release --locked
+      - name: Build and measure
+        run: |
+          sh bench/run.sh "$RUNNER_TEMP/work" results
+          cat "results/$ONLY.meta"
+          grep -q '^status=ok' "results/$ONLY.meta" || { tail -30 "results/$ONLY.log"; exit 1; }
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: result-${{ matrix.project }}
+          path: |
+            results/*.json
+            results/*.meta
+          if-no-files-found: warn
