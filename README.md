@@ -78,6 +78,9 @@ more than local work.
 - `-- <args>`: extra arguments for `cargo build` in `--what-if`, such as
   `-p my-crate` or `--features x`.
 
+Values can be written `--flag value` or `--flag=value`. A flag that does not
+apply to the mode you asked for is an error, not something silently ignored.
+
 ## Status
 
 Early. Works on macOS and Linux, with both the classic target layout and the

@@ -37,6 +37,11 @@ Notable changes to cargo-heft. The format follows
 ### Changed
 
 - `--help` starts with a one-line description of the tool.
+- Flags that would have been ignored are now errors: `--profile` and
+  arguments after `--` without `--what-if`, and `--target-dir` and `--top`
+  with it.
+- `--flag=value` is accepted as well as `--flag value`.
+- A bad or missing value for `--top` is named in the error.
 - A target directory that does not exist is reported as nothing to measure,
   with a hint to build first, instead of a raw OS error.
 

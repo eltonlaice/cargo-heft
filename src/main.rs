@@ -539,27 +539,55 @@ fn print_table(title: &str, m: &BTreeMap<String, u64>, total: u64, top: usize) {
     }
 }
 
+/// The value of `flag`: the part after `=`, or the next argument.
+fn value(
+    flag: &str,
+    inline: &mut Option<OsString>,
+    args: &mut impl Iterator<Item = OsString>,
+) -> Result<OsString, String> {
+    inline
+        .take()
+        .or_else(|| args.next())
+        .ok_or_else(|| format!("{flag} needs a value\n{USAGE}"))
+}
+
 fn run() -> Result<(), String> {
     // `args_os`: paths need not be UTF-8, and `env::args` panics on those.
     let mut args = env::args_os().skip(1).peekable();
     if args.peek().is_some_and(|a| a == "heft") {
         args.next(); // invoked as `cargo heft`
     }
-    let text = |a: Option<OsString>| a.and_then(|a| a.into_string().ok());
-    let (mut target, mut top, mut json) = (None, 15usize, false);
-    let (mut whatif, mut profile, mut extra) = (false, "dev".to_string(), Vec::new());
+    let (mut target, mut top, mut json) = (None, None, false);
+    let (mut whatif, mut profile, mut extra) = (false, None, None);
     while let Some(a) = args.next() {
-        match a.to_str().unwrap_or("") {
-            "--target-dir" => target = Some(PathBuf::from(args.next().ok_or(USAGE)?)),
+        // `--flag=value` as well as `--flag value`.
+        let (flag, mut inline) = match a.to_str().and_then(|s| s.split_once('=')) {
+            Some((flag, value)) if flag.starts_with("--") => {
+                (flag.to_string(), Some(OsString::from(value)))
+            }
+            _ => (a.to_string_lossy().into_owned(), None),
+        };
+        match flag.as_str() {
+            "--target-dir" => target = Some(PathBuf::from(value(&flag, &mut inline, &mut args)?)),
             "--top" => {
-                top = text(args.next())
-                    .and_then(|n| n.parse().ok())
-                    .ok_or(USAGE)?
+                let n = value(&flag, &mut inline, &mut args)?;
+                top = Some(n.to_str().and_then(|n| n.parse().ok()).ok_or_else(|| {
+                    format!(
+                        "--top needs a whole number, got `{}`\n{USAGE}",
+                        n.to_string_lossy()
+                    )
+                })?);
+            }
+            "--profile" => {
+                let name = value(&flag, &mut inline, &mut args)?;
+                profile = Some(
+                    name.into_string()
+                        .map_err(|_| "--profile needs a profile name in UTF-8")?,
+                );
             }
             "--json" => json = true,
             "--what-if" => whatif = true,
-            "--profile" => profile = text(args.next()).ok_or(USAGE)?,
-            "--" => extra.extend(args.by_ref()),
+            "--" => extra = Some(args.by_ref().collect::<Vec<_>>()),
             "-V" | "--version" => {
                 say!("cargo-heft {}", env!("CARGO_PKG_VERSION"));
                 return Ok(());
@@ -568,16 +596,34 @@ fn run() -> Result<(), String> {
                 say!("{}\n\n{USAGE}", env!("CARGO_PKG_DESCRIPTION"));
                 return Ok(());
             }
-            _ => {
-                return Err(format!(
-                    "unknown argument `{}`\n{USAGE}",
-                    a.to_string_lossy()
-                ));
-            }
+            _ => return Err(format!("unknown argument `{flag}`\n{USAGE}")),
+        }
+        if inline.is_some() {
+            return Err(format!("{flag} takes no value\n{USAGE}"));
         }
     }
+    // A flag that would be ignored is a mistake worth pointing out.
+    let misplaced = match whatif {
+        true if target.is_some() => {
+            Some("--target-dir does not apply to --what-if, which builds in a temporary directory")
+        }
+        true if top.is_some() => Some("--top does not apply to --what-if"),
+        false if profile.is_some() => Some("--profile only applies to --what-if"),
+        false if extra.is_some() => {
+            Some("arguments after `--` go to `cargo build`, so they only apply to --what-if")
+        }
+        _ => None,
+    };
+    if let Some(why) = misplaced {
+        return Err(format!("{why}\n{USAGE}"));
+    }
+    let top = top.unwrap_or(15usize);
     if whatif {
-        return what_if(&profile, &extra, json);
+        return what_if(
+            profile.as_deref().unwrap_or("dev"),
+            &extra.unwrap_or_default(),
+            json,
+        );
     }
     let target = match target {
         Some(t) => t,
