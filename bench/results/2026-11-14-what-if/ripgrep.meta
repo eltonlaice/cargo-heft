@@ -1,0 +1,4 @@
+status=ok
+commit=178cc027e283fd965cb72d0a7395b219eada170c
+rustc=rustc 1.100.0 (0ef1bc386 2026-11-09)
+host=aarch64-apple-darwin

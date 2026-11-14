@@ -1,0 +1,44 @@
+{
+  "profile": "dev",
+  "scenarios": [
+    {
+      "build_seconds": 9.590896916,
+      "name": "as configured",
+      "settings": {},
+      "total_bytes": 269398016
+    },
+    {
+      "build_seconds": 8.172001208,
+      "name": "debug = \"line-tables-only\"",
+      "settings": {
+        "debug": "line-tables-only"
+      },
+      "total_bytes": 211189760
+    },
+    {
+      "build_seconds": 8.199306625,
+      "name": "debug = false",
+      "settings": {
+        "debug": "false"
+      },
+      "total_bytes": 188792832
+    },
+    {
+      "build_seconds": 7.784693042,
+      "name": "incremental = false",
+      "settings": {
+        "incremental": "false"
+      },
+      "total_bytes": 143110144
+    },
+    {
+      "build_seconds": 7.308821833,
+      "name": "line-tables-only, no incremental",
+      "settings": {
+        "debug": "line-tables-only",
+        "incremental": "false"
+      },
+      "total_bytes": 121610240
+    }
+  ]
+}
