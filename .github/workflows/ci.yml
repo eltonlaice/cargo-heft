@@ -1,25 +1,53 @@
 name: CI
 
 on:
-  push:
-    branches: [master]
   pull_request:
+  push:
+    branches: [main]
 
 permissions:
   contents: read
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   test:
+    name: test (${{ matrix.os }}, ${{ matrix.toolchain }})
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest]
+        toolchain: [stable]
+        include:
+          # The minimum supported Rust version, declared in Cargo.toml.
+          - os: ubuntu-latest
+            toolchain: "1.88"
     runs-on: ${{ matrix.os }}
+    env:
+      TOOLCHAIN: ${{ matrix.toolchain }}
     steps:
-      - uses: actions/checkout@v4
-      - run: rustup update stable && rustup default stable
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - run: rustup toolchain install "$TOOLCHAIN" --profile minimal --component clippy,rustfmt && rustup default "$TOOLCHAIN"
       - run: cargo fmt --check
       - run: cargo clippy --all-targets -- -D warnings
       - run: cargo test
       - name: Run on its own target directory
         run: cargo run --quiet -- --top 5
+
+  workflows:
+    name: lint workflows
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write # zizmor uploads its findings
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: actionlint
+        run: docker run --rm -v "$PWD:/repo" --workdir /repo rhysd/actionlint:1.7.12 -color
+      - uses: zizmorcore/zizmor-action@45d7276c9ca790aabd705e31ca99c6185c3e76dd # v0.8.1

@@ -1,0 +1,22 @@
+name: Bug report
+description: A crash, an error, or behaviour that is not about a number
+labels: [bug]
+body:
+  - type: textarea
+    attributes:
+      label: What happened
+      description: The command you ran and its output.
+      render: text
+    validations:
+      required: true
+  - type: textarea
+    attributes:
+      label: What you expected
+    validations:
+      required: true
+  - type: input
+    attributes:
+      label: Versions
+      description: Output of `cargo heft --version`, `cargo --version`, and your operating system.
+    validations:
+      required: true

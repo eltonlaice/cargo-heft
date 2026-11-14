@@ -1,0 +1,14 @@
+name: Feature request
+description: Something cargo-heft could measure or report
+labels: [enhancement]
+body:
+  - type: textarea
+    attributes:
+      label: What you want to find out
+      description: The question about your target directory that you cannot answer today.
+    validations:
+      required: true
+  - type: textarea
+    attributes:
+      label: How it could look
+      description: Optional. A sketch of the command or the output.

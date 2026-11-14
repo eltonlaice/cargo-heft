@@ -1,0 +1,23 @@
+name: A number looks wrong
+description: A size, a share or a classification that does not match what is on disk
+labels: [bug]
+body:
+  - type: textarea
+    attributes:
+      label: What cargo-heft printed
+      description: The relevant part of the output. `--json` is welcome.
+      render: text
+    validations:
+      required: true
+  - type: textarea
+    attributes:
+      label: What you expected, and how you checked
+      description: For example the output of `du -sh target` or `ls -l` on the files involved.
+    validations:
+      required: true
+  - type: input
+    attributes:
+      label: Versions
+      description: Output of `cargo heft --version`, `cargo --version`, and your operating system.
+    validations:
+      required: true
