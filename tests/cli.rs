@@ -386,3 +386,74 @@ fn unreadable_directories_are_reported_not_panicked() {
         );
     }
 }
+
+#[test]
+fn flags_that_would_be_ignored_are_rejected() {
+    let dir = TempDir::new("misplaced");
+    let target = dir.path().to_str().unwrap();
+    for (args, expect) in [
+        (
+            &["--target-dir", target, "--profile", "release"][..],
+            "--profile only applies to --what-if",
+        ),
+        (
+            &["--target-dir", target, "--", "--release"][..],
+            "only apply to --what-if",
+        ),
+        (
+            &["--what-if", "--target-dir", target][..],
+            "--target-dir does not apply to --what-if",
+        ),
+        (
+            &["--what-if", "--top", "3"][..],
+            "--top does not apply to --what-if",
+        ),
+    ] {
+        let out = run(args);
+        out.assert_failed();
+        assert!(out.stderr.contains(expect), "{args:?}: {}", out.stderr);
+        assert!(
+            out.stdout.is_empty(),
+            "{args:?} printed a report: {}",
+            out.stdout
+        );
+    }
+}
+
+#[test]
+fn a_value_can_follow_an_equals_sign() {
+    let dir = TempDir::new("equals");
+    write_sized(
+        dir.path(),
+        "debug/deps/libfoo-0123456789abcdef.rlib",
+        4096,
+        b'x',
+    );
+    let spaced = report(dir.path(), &["--target-dir", "."]);
+    let joined = report(dir.path(), &["--target-dir=."]);
+    assert_eq!(spaced, joined);
+    run_in(dir.path(), &["--target-dir=.", "--top=1"]).assert_ok();
+
+    let out = run_in(dir.path(), &["--json=yes", "--target-dir=."]);
+    out.assert_failed();
+    assert!(
+        out.stderr.contains("--json takes no value"),
+        "{}",
+        out.stderr
+    );
+}
+
+#[test]
+fn a_bad_top_value_is_named_in_the_error() {
+    let out = run(&["--top", "many"]);
+    out.assert_failed();
+    assert!(
+        out.stderr
+            .contains("--top needs a whole number, got `many`"),
+        "{}",
+        out.stderr
+    );
+    let out = run(&["--top"]);
+    out.assert_failed();
+    assert!(out.stderr.contains("--top needs a value"), "{}", out.stderr);
+}
