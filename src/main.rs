@@ -77,12 +77,16 @@ fn classify(rel: &Path, executable: bool, script_unit: bool) -> &'static str {
     if comps.iter().any(|c| c.ends_with(".dSYM")) {
         return "debuginfo (dSYM)";
     }
-    let classic_out = after(1).is_some_and(|c| strip_hash(c).is_some()) && after(2) == Some("out");
-    if classic_out || (v2 && (after(3) == Some("run") || script_unit)) {
-        return "build script output";
-    }
     if name.starts_with("build_script_") || name.starts_with("build-script-") {
         return "build script executable";
+    }
+    // Everything else a build script unit holds is what running it left
+    // behind: `OUT_DIR`, plus its captured output (`output`, `stderr`,
+    // `root-output`, `invoked.timestamp`), which the classic layout keeps
+    // next to `out/` and v2 keeps in `run/`.
+    let classic_unit = after(1).is_some_and(|c| strip_hash(c).is_some());
+    if classic_unit || (v2 && (after(3) == Some("run") || script_unit)) {
+        return "build script output";
     }
     match comps.first().copied() {
         Some("doc") => return "doc",
@@ -113,11 +117,15 @@ fn crate_of(rel: &Path) -> Option<String> {
     let comps: Vec<&str> = rel.iter().filter_map(|c| c.to_str()).collect();
     let norm = |s: &str| s.replace('-', "_");
     if let Some(i) = comps.iter().position(|c| *c == "incremental") {
-        // incremental/<crate>-<base36 hash>/...
+        // incremental/<crate>-<base36 hash>/... A build script's cache is
+        // named after the script, not its package, so it is not a crate.
         return comps
             .get(i + 1)
             .and_then(|c| c.rsplit_once('-'))
-            .map(|(n, _)| norm(n));
+            .map(|(n, _)| match n {
+                _ if n.starts_with("build_script_") => "(build scripts)".into(),
+                _ => norm(n),
+            });
     }
     if let Some(i) = comps.iter().position(|c| *c == "build")
         && comps.get(i + 2).is_some_and(|h| is_hash(h))
@@ -228,8 +236,7 @@ fn walk(
     root: &Path,
     dir: &Path,
     files: &mut Vec<File>,
-    script_units: &mut HashSet<PathBuf>,
-    r: &mut Report,
+    dirs: &mut Vec<(PathBuf, u64)>,
 ) -> io::Result<()> {
     for entry in fs::read_dir(dir)? {
         let path = entry?.path();
@@ -237,13 +244,8 @@ fn walk(
         let (bytes, id, executable) = disk_usage(&md);
         let rel = path.strip_prefix(root).unwrap_or(&path).to_path_buf();
         if md.is_dir() {
-            r.add(&rel, "directories", bytes);
-            if let (Some("run"), Some(unit)) =
-                (rel.file_name().and_then(|n| n.to_str()), rel.parent())
-            {
-                script_units.insert(unit.to_path_buf());
-            }
-            walk(root, &path, files, script_units, r)?;
+            dirs.push((rel, bytes));
+            walk(root, &path, files, dirs)?;
         } else {
             files.push(File {
                 rel,
@@ -256,16 +258,39 @@ fn walk(
     Ok(())
 }
 
+/// The directories that have the shape of a profile directory: `debug`,
+/// `release`, or `<triple>/debug`, but not `doc`, `package` or `tmp`.
+fn profile_dirs(dirs: &[(PathBuf, u64)]) -> HashSet<&Path> {
+    let all: HashSet<&Path> = dirs.iter().map(|(d, _)| d.as_path()).collect();
+    let has = |d: &Path, child: &str| all.contains(d.join(child).as_path());
+    all.iter()
+        .copied()
+        .filter(|d| {
+            has(d, "build")
+                && ["deps", "incremental", "examples"]
+                    .iter()
+                    .any(|c| has(d, c))
+        })
+        .collect()
+}
+
+/// The outermost profile directory a path is in.
+fn profile_of(rel: &Path, profiles: &HashSet<&Path>) -> String {
+    let mut inside: Vec<&Path> = rel.ancestors().filter(|a| profiles.contains(a)).collect();
+    match inside.pop() {
+        Some(profile) => profile.to_string_lossy().into_owned(),
+        None => "(not in a profile)".into(),
+    }
+}
+
 impl Report {
-    fn add(&mut self, rel: &Path, kind: &str, bytes: u64) {
+    fn add(&mut self, rel: &Path, kind: &str, bytes: u64, profiles: &HashSet<&Path>) {
         self.total += bytes;
         *self.by_kind.entry(kind.into()).or_default() += bytes;
-        let mut comps = rel.iter().filter_map(|c| c.to_str());
-        let profile = match (comps.next(), comps.next()) {
-            (Some(first), Some(_)) => first,
-            _ => "(top level)",
-        };
-        *self.by_profile.entry(profile.into()).or_default() += bytes;
+        *self
+            .by_profile
+            .entry(profile_of(rel, profiles))
+            .or_default() += bytes;
         if let Some(c) = crate_of(rel) {
             *self.by_crate.entry(c).or_default() += bytes;
         }
@@ -315,9 +340,18 @@ fn measure(root: &Path) -> io::Result<Report> {
     let mut r = Report::default();
     let mut files = Vec::new();
     let (bytes, ..) = disk_usage(&fs::symlink_metadata(root)?);
-    r.add(Path::new(""), "directories", bytes);
-    let mut script_units = HashSet::new();
-    walk(root, root, &mut files, &mut script_units, &mut r)?;
+    let mut dirs = vec![(PathBuf::new(), bytes)];
+    walk(root, root, &mut files, &mut dirs)?;
+    let profiles = profile_dirs(&dirs);
+    // A v2 unit that has `run/` is a build script run; its `out/` is OUT_DIR.
+    let script_units: HashSet<&Path> = dirs
+        .iter()
+        .filter(|(d, _)| d.file_name().is_some_and(|n| n == "run"))
+        .filter_map(|(d, _)| d.parent())
+        .collect();
+    for (dir, bytes) in &dirs {
+        r.add(dir, "directories", *bytes, &profiles);
+    }
     // rustc hard-links objects and metadata between `deps` and `incremental`.
     // Count each inode once, as the artifact outside `incremental`, so that
     // "incremental" is what deleting that directory would actually free.
@@ -331,7 +365,7 @@ fn measure(root: &Path) -> io::Result<Report> {
         }
         let script_unit = f.rel.ancestors().any(|a| script_units.contains(a));
         let kind = classify(&f.rel, f.executable, script_unit);
-        r.add(&f.rel, kind, f.bytes);
+        r.add(&f.rel, kind, f.bytes, &profiles);
         r.add_content(root, f, kind, &mut rlibs);
         if kind == "rmeta" {
             rmetas.push(f);
@@ -671,6 +705,91 @@ mod tests {
     }
 
     #[test]
+    fn build_script_runs_classify_alike_in_both_layouts() {
+        let k = |p: &str, script| classify(Path::new(p), false, script);
+        let classic = "debug/build/dep-0123456789abcdef";
+        let v2 = "debug/build/dep/0123456789abcdef";
+        for file in [
+            "output",
+            "root-output",
+            "stderr",
+            "invoked.timestamp",
+            "out/generated.rs",
+        ] {
+            assert_eq!(
+                k(&format!("{classic}/{file}"), false),
+                "build script output",
+                "{file}"
+            );
+        }
+        for file in [
+            "run/stdout",
+            "run/root-output",
+            "run/stderr",
+            "run/invoked.timestamp",
+        ] {
+            assert_eq!(
+                k(&format!("{v2}/{file}"), false),
+                "build script output",
+                "{file}"
+            );
+        }
+        assert_eq!(
+            k(&format!("{v2}/out/generated.rs"), true),
+            "build script output"
+        );
+        // The script itself is not its output, in either layout.
+        for exe in ["build_script_build-0123456789abcdef", "build-script-build"] {
+            assert_eq!(
+                k(&format!("{classic}/{exe}"), false),
+                "build script executable"
+            );
+        }
+        assert_eq!(
+            k(&format!("{v2}/out/build_script_build"), false),
+            "build script executable"
+        );
+    }
+
+    #[test]
+    fn only_profile_shaped_directories_are_profiles() {
+        let dirs: Vec<(PathBuf, u64)> = [
+            "",
+            "debug",
+            "debug/build",
+            "debug/deps",
+            "release",
+            "release/build",
+            "release/incremental",
+            "x86_64-unknown-linux-gnu",
+            "x86_64-unknown-linux-gnu/debug",
+            "x86_64-unknown-linux-gnu/debug/build",
+            "x86_64-unknown-linux-gnu/debug/examples",
+            "doc",
+            "doc/serde",
+            "package",
+            "debug/build/dep-0123456789abcdef/out/build",
+            "debug/build/dep-0123456789abcdef/out/deps",
+        ]
+        .iter()
+        .map(|d| (PathBuf::from(d), 0))
+        .collect();
+        let profiles = profile_dirs(&dirs);
+        let p = |rel: &str| profile_of(Path::new(rel), &profiles);
+        assert_eq!(p("debug/deps/libserde-0123456789abcdef.rlib"), "debug");
+        assert_eq!(p("release/rg"), "release");
+        assert_eq!(
+            p("x86_64-unknown-linux-gnu/debug/rg"),
+            "x86_64-unknown-linux-gnu/debug"
+        );
+        // Not misled by a build script that makes its own `build` and `deps`.
+        assert_eq!(p("debug/build/dep-0123456789abcdef/out/build/x.o"), "debug");
+        assert_eq!(p("doc/serde/index.html"), "(not in a profile)");
+        assert_eq!(p("package/rg-1.0.0.crate"), "(not in a profile)");
+        assert_eq!(p("CACHEDIR.TAG"), "(not in a profile)");
+    }
+
+    #[test]
     fn names_the_crate() {
         let c = |p: &str| crate_of(Path::new(p));
         assert_eq!(
@@ -691,5 +810,9 @@ mod tests {
             Some("grep_cli")
         );
         assert_eq!(c("debug/rg"), None);
+        assert_eq!(
+            c("debug/incremental/build_script_build-2k1x9/s-a-b/dep-graph.bin").as_deref(),
+            Some("(build scripts)")
+        );
     }
 }
