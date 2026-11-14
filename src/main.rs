@@ -506,6 +506,17 @@ fn run() -> Result<(), String> {
         Some(t) => t,
         None => default_target_dir()?,
     };
+    if !target.is_dir() {
+        let why = if target.exists() {
+            "is not a directory"
+        } else {
+            "does not exist"
+        };
+        return Err(format!(
+            "nothing to measure: {} {why}\nBuild the workspace first (`cargo build`), or point at a target directory with --target-dir.",
+            target.display()
+        ));
+    }
     let r = measure(&target).map_err(|e| format!("{}: {e}", target.display()))?;
     if json {
         let out = serde_json::json!({
