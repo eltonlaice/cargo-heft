@@ -30,6 +30,9 @@ Notable changes to cargo-heft. The format follows
   target shows as `<triple>/debug` instead of the triple alone.
 - The incremental cache of build scripts is listed as "(build scripts)"
   instead of a crate called `build_script_build`.
+- Symbolic links inside the target directory are listed as "symlink". They
+  were classified by name and mode, usually as "binary", and a link named
+  like an artifact was opened and read through.
 
 ### Changed
 

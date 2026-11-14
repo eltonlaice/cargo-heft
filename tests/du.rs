@@ -1,6 +1,14 @@
-//! The total must match `du`, and a real build must be recognised.
+//! End-to-end tests: build the fixture workspace, then measure it.
+//!
+//! The total must match `du`, a real build must be recognised, and `--what-if`
+//! must build and compare each profile setting.
+
+mod common;
+
 use std::path::Path;
-use std::process::Command;
+use std::process::{Command, Stdio};
+
+use common::*;
 
 fn stdout(cmd: &mut Command) -> String {
     let out = cmd.output().expect("command runs");
@@ -13,19 +21,23 @@ fn stdout(cmd: &mut Command) -> String {
     String::from_utf8(out.stdout).unwrap()
 }
 
-#[test]
-fn total_matches_du_on_a_real_build() {
-    let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixture");
-    let target = Path::new(env!("CARGO_TARGET_TMPDIR")).join("fixture-target");
-    let _ = std::fs::remove_dir_all(&target);
+fn build_fixture(target: &Path, extra: &[&str]) {
     stdout(
         Command::new(env!("CARGO"))
             .arg("build")
-            .current_dir(&fixture)
-            .env("CARGO_TARGET_DIR", &target)
+            .args(extra)
+            .current_dir(fixture())
+            .env("CARGO_TARGET_DIR", target)
             // Cargo 1.100 turns incremental off when `CI` is set.
             .env("CARGO_INCREMENTAL", "1"),
     );
+}
+
+#[test]
+fn total_matches_du_on_a_real_build() {
+    let target = Path::new(env!("CARGO_TARGET_TMPDIR")).join("fixture-target");
+    let _ = std::fs::remove_dir_all(&target);
+    build_fixture(&target, &[]);
 
     let json = stdout(
         Command::new(env!("CARGO_BIN_EXE_cargo-heft"))
@@ -92,36 +104,189 @@ fn total_matches_du_on_a_real_build() {
             "no {part} in {content:?}"
         );
     }
-    assert!(v["duplicated_metadata_bytes"].as_u64().unwrap() > 0);
+    let duplicated = v["duplicated_metadata_bytes"].as_u64().unwrap();
+    assert!(duplicated > 0);
+    assert!(
+        duplicated <= content["metadata (.rmeta files)"].as_u64().unwrap(),
+        "duplicated metadata cannot exceed the standalone .rmeta files"
+    );
+    assert!(
+        duplicated <= content["metadata (inside rlib/dylib)"].as_u64().unwrap(),
+        "duplicated metadata cannot exceed the metadata inside the rlibs"
+    );
+
+    // The human-readable view says the same thing, and --top only truncates
+    // the crate table.
+    let text = stdout(
+        Command::new(env!("CARGO_BIN_EXE_cargo-heft"))
+            .arg("--target-dir")
+            .arg(&target),
+    );
+    for table in ["by kind", "by content", "by profile", "largest crates"] {
+        assert!(text.contains(table), "no {table} in:\n{text}");
+    }
+    assert!(text.contains(" on disk"), "{}", text);
+    assert!(
+        text.contains("note:") && text.contains("stored twice"),
+        "missing duplicated-metadata note:\n{text}"
+    );
+    let top = stdout(
+        Command::new(env!("CARGO_BIN_EXE_cargo-heft"))
+            .arg("--target-dir")
+            .arg(&target)
+            .args(["--top", "1"]),
+    );
+    assert_eq!(
+        crate_names(&top).len(),
+        1,
+        "--top 1 must list one crate:\n{top}"
+    );
+}
+
+#[test]
+fn release_profile_is_reported() {
+    let scratch = TempDir::new("fixture-release");
+    let target = scratch.join("target");
+    build_fixture(&target, &["--release"]);
+
+    let report = report(&fixture(), &["--target-dir", target.to_str().unwrap()]);
+    assert_consistent(&report);
+    assert!(
+        report["by_profile"]["release"].as_u64().unwrap() > 0,
+        "release profile missing from {}",
+        report["by_profile"]
+    );
+    assert!(report["by_kind"]["binary"].as_u64().unwrap() > 0);
+    #[cfg(unix)]
+    assert_matches_du(report["total_bytes"].as_u64().unwrap(), &target);
 }
 
 #[test]
 fn what_if_measures_each_setting() {
-    let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixture");
     let json = stdout(
         Command::new(env!("CARGO_BIN_EXE_cargo-heft"))
             .args(["--what-if", "--json"])
-            .current_dir(&fixture)
+            .current_dir(fixture())
             .env_remove("CARGO_TARGET_DIR")
             .env_remove("CI"),
     );
     let v: serde_json::Value = serde_json::from_str(&json).unwrap();
+    assert_eq!(v["profile"], "dev");
+
+    let scenarios = v["scenarios"].as_array().unwrap();
+    assert_eq!(scenarios.len(), 5);
+    let names: Vec<&str> = scenarios
+        .iter()
+        .map(|s| s["name"].as_str().unwrap())
+        .collect();
+    assert_eq!(
+        names,
+        [
+            "as configured",
+            "debug = \"line-tables-only\"",
+            "debug = false",
+            "incremental = false",
+            "line-tables-only, no incremental",
+        ]
+    );
+    assert_eq!(scenarios[0]["settings"], serde_json::json!({}));
+    assert_eq!(
+        scenarios[1]["settings"],
+        serde_json::json!({ "debug": "line-tables-only" })
+    );
+    for scenario in scenarios {
+        assert!(scenario["total_bytes"].as_u64().unwrap() > 0);
+        assert!(scenario["build_seconds"].as_f64().unwrap() >= 0.0);
+    }
+
     let size = |name: &str| {
-        v["scenarios"]
-            .as_array()
-            .unwrap()
+        scenarios
             .iter()
             .find(|s| s["name"] == name)
             .unwrap_or_else(|| panic!("no scenario {name}"))["total_bytes"]
             .as_u64()
             .unwrap()
     };
-    assert_eq!(v["scenarios"].as_array().unwrap().len(), 5);
     assert!(size("debug = false") < size("as configured"));
     // `<=`: where Cargo already builds without incremental, nothing changes.
     assert!(size("incremental = false") <= size("as configured"));
     assert!(size("line-tables-only, no incremental") <= size("debug = \"line-tables-only\""));
     assert!(size("debug = \"line-tables-only\"") < size("as configured"));
+}
+
+#[test]
+fn a_failing_what_if_build_is_reported_and_the_scratch_dir_is_removed() {
+    let child = Command::new(env!("CARGO_BIN_EXE_cargo-heft"))
+        .args(["--what-if", "--"])
+        .arg("--definitely-not-a-cargo-flag")
+        .current_dir(fixture())
+        .env_remove("CARGO_TARGET_DIR")
+        .env_remove("CI")
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("spawn cargo-heft");
+    let pid = child.id();
+    let out = child.wait_with_output().expect("wait for cargo-heft");
+
+    assert_eq!(out.status.code(), Some(1));
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        stderr.contains("building 1/5: as configured"),
+        "expected progress on stderr:\n{stderr}"
+    );
+    assert!(
+        stderr.contains("cargo build failed (as configured)"),
+        "expected a clear failure:\n{stderr}"
+    );
+    assert!(
+        stderr.contains("--definitely-not-a-cargo-flag"),
+        "expected cargo's explanation to mention the flag:\n{stderr}"
+    );
+
+    let scratch = std::env::temp_dir().join(format!("cargo-heft-{pid}"));
+    assert!(
+        !scratch.exists(),
+        "the temporary build directory was left behind: {}",
+        scratch.display()
+    );
+}
+
+#[test]
+fn the_workspace_target_dir_is_the_default() {
+    let dir = TempDir::new("default-target");
+    write_file(
+        dir.path(),
+        "Cargo.toml",
+        b"[package]\nname = \"tiny\"\nversion = \"0.0.0\"\nedition = \"2021\"\n",
+    );
+    write_file(dir.path(), "src/main.rs", b"fn main() {}\n");
+    stdout(
+        Command::new(env!("CARGO"))
+            .args(["build", "--quiet"])
+            .current_dir(dir.path())
+            .env_remove("CARGO_TARGET_DIR"),
+    );
+
+    let out = Command::new(env!("CARGO_BIN_EXE_cargo-heft"))
+        .arg("--json")
+        .current_dir(dir.path())
+        .env_remove("CARGO_TARGET_DIR")
+        .output()
+        .expect("run cargo-heft");
+    assert!(
+        out.status.success(),
+        "cargo-heft failed: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let report: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_consistent(&report);
+    assert_eq!(
+        Path::new(report["target_dir"].as_str().unwrap()),
+        dir.join("target"),
+        "the default must be the workspace target directory from cargo metadata"
+    );
+    assert!(report["by_kind"]["binary"].as_u64().unwrap() > 0);
 }
 
 #[test]
@@ -133,6 +298,7 @@ fn a_missing_target_dir_is_explained() {
         .output()
         .unwrap();
     assert!(!out.status.success());
+    assert_eq!(out.status.code(), Some(1));
     let stderr = String::from_utf8(out.stderr).unwrap();
     assert!(stderr.contains("does not exist"), "{stderr}");
     assert!(stderr.contains("cargo build"), "{stderr}");
