@@ -77,3 +77,29 @@ fn total_matches_du_on_a_real_build() {
     }
     assert!(v["duplicated_metadata_bytes"].as_u64().unwrap() > 0);
 }
+
+#[test]
+fn what_if_measures_each_setting() {
+    let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixture");
+    let json = stdout(
+        Command::new(env!("CARGO_BIN_EXE_cargo-heft"))
+            .args(["--what-if", "--json"])
+            .current_dir(&fixture)
+            .env_remove("CARGO_TARGET_DIR"),
+    );
+    let v: serde_json::Value = serde_json::from_str(&json).unwrap();
+    let size = |name: &str| {
+        v["scenarios"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|s| s["name"] == name)
+            .unwrap_or_else(|| panic!("no scenario {name}"))["total_bytes"]
+            .as_u64()
+            .unwrap()
+    };
+    assert_eq!(v["scenarios"].as_array().unwrap().len(), 5);
+    assert!(size("debug = false") < size("as configured"));
+    assert!(size("incremental = false") < size("as configured"));
+    assert!(size("line-tables-only, no incremental") < size("debug = \"line-tables-only\""));
+}

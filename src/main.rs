@@ -10,10 +10,29 @@ use std::{env, fs, io};
 
 const USAGE: &str = "\
 Usage: cargo heft [--target-dir <DIR>] [--top <N>] [--json]
+       cargo heft --what-if [--profile <NAME>] [--json] [-- <cargo build args>]
 
   --target-dir <DIR>  directory to measure (default: the workspace's target dir)
   --top <N>           crates to list (default 15)
-  --json              machine-readable output";
+  --json              machine-readable output
+  --what-if           build this workspace from scratch once per profile setting,
+                      in a temporary directory, and compare the sizes
+  --profile <NAME>    profile for --what-if (default: dev)";
+
+/// Profile settings `--what-if` tries, as (key, value) pairs of `[profile.*]`.
+const SCENARIOS: &[(&str, &[(&str, &str)])] = &[
+    ("as configured", &[]),
+    (
+        "debug = \"line-tables-only\"",
+        &[("debug", "line-tables-only")],
+    ),
+    ("debug = false", &[("debug", "false")]),
+    ("incremental = false", &[("incremental", "false")]),
+    (
+        "line-tables-only, no incremental",
+        &[("debug", "line-tables-only"), ("incremental", "false")],
+    ),
+];
 
 /// What a path inside a target directory is, judged by its name so that it
 /// holds for both the classic layout and Cargo's new build-dir layout.
@@ -286,12 +305,102 @@ fn measure(root: &Path) -> io::Result<Report> {
     Ok(r)
 }
 
+fn cargo() -> Command {
+    Command::new(env::var_os("CARGO").unwrap_or_else(|| "cargo".into()))
+}
+
+/// Removes the scratch directory however `what_if` ends.
+struct Scratch(PathBuf);
+
+impl Drop for Scratch {
+    fn drop(&mut self) {
+        let _ = fs::remove_dir_all(&self.0);
+    }
+}
+
+fn what_if(profile: &str, extra: &[String], json: bool) -> Result<(), String> {
+    let scratch = Scratch(env::temp_dir().join(format!("cargo-heft-{}", std::process::id())));
+    let _ = cargo().arg("fetch").output(); // keep downloads out of the first timing
+    let prefix = format!(
+        "CARGO_PROFILE_{}_",
+        profile.to_uppercase().replace('-', "_")
+    );
+    let mut rows = Vec::new();
+    for (i, (name, settings)) in SCENARIOS.iter().enumerate() {
+        eprintln!("building {}/{}: {name}", i + 1, SCENARIOS.len());
+        let dir = scratch.0.join(i.to_string());
+        let start = std::time::Instant::now();
+        let out = cargo()
+            .args(["build", "--profile", profile])
+            .args(extra)
+            .env("CARGO_TARGET_DIR", &dir)
+            .envs(
+                settings
+                    .iter()
+                    .map(|(k, v)| (format!("{prefix}{}", k.to_uppercase()), v)),
+            )
+            .output()
+            .map_err(|e| format!("could not run cargo build: {e}"))?;
+        let seconds = start.elapsed().as_secs_f64();
+        if !out.status.success() {
+            return Err(format!(
+                "cargo build failed ({name}):\n{}",
+                String::from_utf8_lossy(&out.stderr)
+            ));
+        }
+        let total = measure(&dir)
+            .map_err(|e| format!("{}: {e}", dir.display()))?
+            .total;
+        let _ = fs::remove_dir_all(&dir); // one build on disk at a time
+        rows.push((*name, *settings, total, seconds));
+    }
+    if json {
+        let scenarios: Vec<_> = rows
+            .iter()
+            .map(|(name, settings, total, seconds)| {
+                let settings: BTreeMap<_, _> = settings.iter().copied().collect();
+                serde_json::json!({ "name": name, "settings": settings, "total_bytes": total, "build_seconds": seconds })
+            })
+            .collect();
+        println!(
+            "{:#}",
+            serde_json::json!({ "profile": profile, "scenarios": scenarios })
+        );
+        return Ok(());
+    }
+    let base = rows[0].2;
+    println!("fresh `{profile}` builds, settings as they would go in [profile.{profile}]\n");
+    println!(
+        "  {:<34} {:>10} {:>9} {:>8}",
+        "setting", "size", "vs first", "build"
+    );
+    for (name, _, total, seconds) in &rows {
+        let delta = if *total == base || base == 0 {
+            String::new()
+        } else {
+            format!(
+                "{:+.1}%",
+                100.0 * (*total as f64 - base as f64) / base as f64
+            )
+        };
+        println!(
+            "  {name:<34} {:>7.1} MB {delta:>9} {seconds:>7.1}s",
+            *total as f64 / 1e6
+        );
+    }
+    println!(
+        "\n  note: these are builds from scratch. `incremental = false` makes rebuilds after an"
+    );
+    println!("  edit slower, so it suits CI more than local work. Less debuginfo means a debugger");
+    println!("  shows less: `line-tables-only` keeps backtraces with file and line.");
+    Ok(())
+}
+
 fn default_target_dir() -> Result<PathBuf, String> {
     if let Some(d) = env::var_os("CARGO_TARGET_DIR") {
         return Ok(d.into());
     }
-    let cargo = env::var_os("CARGO").unwrap_or_else(|| "cargo".into());
-    let out = Command::new(cargo)
+    let out = cargo()
         .args(["metadata", "--format-version", "1", "--no-deps"])
         .output()
         .map_err(|e| format!("could not run cargo metadata: {e}"))?;
@@ -330,17 +439,24 @@ fn run() -> Result<(), String> {
         args.next(); // invoked as `cargo heft`
     }
     let (mut target, mut top, mut json) = (None, 15usize, false);
+    let (mut whatif, mut profile, mut extra) = (false, "dev".to_string(), Vec::new());
     while let Some(a) = args.next() {
         match a.as_str() {
             "--target-dir" => target = Some(PathBuf::from(args.next().ok_or(USAGE)?)),
             "--top" => top = args.next().and_then(|n| n.parse().ok()).ok_or(USAGE)?,
             "--json" => json = true,
+            "--what-if" => whatif = true,
+            "--profile" => profile = args.next().ok_or(USAGE)?,
+            "--" => extra.extend(args.by_ref()),
             "-h" | "--help" => {
                 println!("{USAGE}");
                 return Ok(());
             }
             _ => return Err(format!("unknown argument `{a}`\n{USAGE}")),
         }
+    }
+    if whatif {
+        return what_if(&profile, &extra, json);
     }
     let target = match target {
         Some(t) => t,

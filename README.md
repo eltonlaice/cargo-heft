@@ -42,16 +42,40 @@ by content
   each file's on-disk bytes into metadata, debuginfo and the rest, in
   proportion to the bytes found inside.
 
+## What would a setting save?
+
+`cargo heft --what-if` builds the workspace from scratch once per profile
+setting, in a temporary directory, and compares the sizes. Nothing in your
+own `target/` is touched.
+
+```
+fresh `dev` builds, settings as they would go in [profile.dev]
+
+  setting                                  size  vs first    build
+  as configured                        314.0 MB               7.7s
+  debug = "line-tables-only"           251.3 MB    -20.0%     6.8s
+  debug = false                        191.6 MB    -39.0%     6.0s
+  incremental = false                  222.3 MB    -29.2%     6.2s
+  line-tables-only, no incremental     177.2 MB    -43.6%     5.8s
+```
+
+(ripgrep again.) It runs five full builds, so it takes five times a clean
+build. `incremental = false` makes rebuilds after an edit slower: it suits CI
+more than local work.
+
 ## Options
 
 - `--target-dir <DIR>`: measure this directory instead of the workspace's.
 - `--top <N>`: how many crates to list (default 15).
-- `--json`: machine-readable output.
+- `--json`: machine-readable output, for both modes.
+- `--what-if`: compare profile settings, as above.
+- `--profile <NAME>`: profile for `--what-if` (default `dev`).
+- `-- <args>`: extra arguments for `cargo build` in `--what-if`, such as
+  `-p my-crate` or `--features x`.
 
 ## Status
 
-Early. Works on macOS and Linux. Planned: a `--what-if` mode that measures what each
-profile setting saves on your project.
+Early. Works on macOS and Linux.
 
 ## License
 
