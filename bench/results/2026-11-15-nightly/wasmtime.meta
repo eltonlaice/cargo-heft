@@ -1,0 +1,6 @@
+status=ok
+url=https://github.com/bytecodealliance/wasmtime
+commit=c52bc6d8fc7ebf2ba3f7e39ab3203a3c13c1d272
+build_seconds=117
+rustc=rustc 1.102.0-nightly (5f4effd57 2026-11-13)
+host=aarch64-apple-darwin

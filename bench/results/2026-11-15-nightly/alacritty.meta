@@ -1,0 +1,6 @@
+status=ok
+url=https://github.com/alacritty/alacritty
+commit=aa5d942f46c40184a3f214830ff5f7989f4733a1
+build_seconds=24
+rustc=rustc 1.102.0-nightly (5f4effd57 2026-11-13)
+host=aarch64-apple-darwin
