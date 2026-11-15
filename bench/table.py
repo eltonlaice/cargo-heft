@@ -27,17 +27,22 @@ for meta_path in sorted(out.glob("*.meta")):
         c.get("code, data and symbols", 0),
     ]))
 
-print("| Project | Commit | `target/` | Debuginfo | Incremental | Metadata | of which twice | Code |")
-print("|---|---|--:|--:|--:|--:|--:|--:|")
+print("| Project | Commit | `target/` | Debuginfo | Incremental | Metadata | of which twice | Code | Other |")
+print("|---|---|--:|--:|--:|--:|--:|--:|--:|")
 sums = [0] * 5
 grand = 0
+rest = 0
 for total, name, commit, secs, parts in sorted(rows):
     grand += total
     sums = [a + b for a, b in zip(sums, parts)]
     size = "%.2f GB" % (total / 1e9) if total >= 1e9 else "%.0f MB" % (total / 1e6)
-    print("| %s | `%s` | %s | %s |" % (
-        name, commit, size, " | ".join("%.0f%%" % (100 * p / total) for p in parts)))
-print("| **all %d** | | **%.1f GB** | %s |" % (
-    len(rows), grand / 1e9, " | ".join("**%.0f%%**" % (100 * s / grand) for s in sums)))
+    other = total - parts[0] - parts[1] - parts[2] - parts[4]
+    rest += other
+    print("| %s | `%s` | %s | %s | %.0f%% |" % (
+        name, commit, size, " | ".join("%.0f%%" % (100 * p / total) for p in parts),
+        100 * other / total))
+print("| **all %d** | | **%.1f GB** | %s | **%.0f%%** |" % (
+    len(rows), grand / 1e9, " | ".join("**%.0f%%**" % (100 * s / grand) for s in sums),
+    100 * rest / grand))
 if failed:
     print("\nNot measured: " + ", ".join(failed) + ".")

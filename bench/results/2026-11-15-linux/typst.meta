@@ -1,0 +1,6 @@
+status=ok
+url=https://github.com/typst/typst
+commit=84cca406aafe7f830ed3f37f1cc6f0c8b6b65a03
+build_seconds=483
+rustc=rustc 1.100.0 (0ef1bc386 2026-11-09)
+host=x86_64-unknown-linux-gnu

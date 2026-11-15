@@ -5,6 +5,12 @@
 #
 #   bench/run.sh <work-dir> <out-dir>
 #
+# Environment:
+#   TOOLCHAIN  toolchain to build with (default stable)
+#   ONLY       space-separated project names; the rest are skipped
+#   PIN_DIR    a results directory; each project is checked out at the commit
+#              recorded in its .meta file there, to repeat an earlier run
+#
 # One JSON file per project in <out-dir>, plus <name>.meta with the commit,
 # the build time and the toolchain. The target directory is removed after
 # measuring, so only one is on disk at a time.
@@ -17,9 +23,18 @@ work=$(cd "$work" && pwd) out=$(cd "$out" && pwd)
 
 while read -r name url; do
     [ -z "$name" ] && continue
+    case " ${ONLY:-$name} " in *" $name "*) ;; *) continue ;; esac
     [ -f "$out/$name.json" ] && continue
     src=$work/$name target=$work/target-$name
-    [ -d "$src" ] || git clone -q --depth 1 "$url" "$src" || { echo "status=clone-failed" > "$out/$name.meta"; continue; }
+    pin=
+    [ -n "${PIN_DIR:-}" ] && pin=$(sed -n 's/^commit=//p' "$PIN_DIR/$name.meta" 2>/dev/null)
+    if [ -d "$src" ]; then
+        :
+    elif [ -n "$pin" ]; then
+        git init -q "$src" && git -C "$src" fetch -q --depth 1 "$url" "$pin" && git -C "$src" checkout -q FETCH_HEAD
+    else
+        git clone -q --depth 1 "$url" "$src"
+    fi || { echo "status=clone-failed" > "$out/$name.meta"; continue; }
     start=$(date +%s)
     if (cd "$src" && CARGO_TARGET_DIR=$target cargo "+$tc" build >"$out/$name.log" 2>&1); then
         (cd "$work" && "$heft" --json --target-dir "target-$name") > "$out/$name.json"
