@@ -6,6 +6,8 @@ Notable changes to cargo-heft. The format follows
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-11-15
+
 ### Fixed
 
 - A target whose name differs from its package, such as the `rg` binary of
@@ -75,6 +77,7 @@ First release.
 - Support for the classic target layout and the build-dir v2 layout of
   Cargo 1.100.
 
-[Unreleased]: https://github.com/eltonlaice/cargo-heft/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/eltonlaice/cargo-heft/compare/v0.2.1...HEAD
+[0.2.1]: https://github.com/eltonlaice/cargo-heft/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/eltonlaice/cargo-heft/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/eltonlaice/cargo-heft/releases/tag/v0.1.0
