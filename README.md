@@ -10,17 +10,19 @@ cargo install cargo-heft
 cargo heft
 ```
 
+Needs Rust 1.88 or later to install.
+
 It prints the size of the directory four ways: by kind of file, by what is
 inside the files, by profile and by crate. This is ripgrep after a fresh
 `dev` build:
 
 ```
-target: 307.2 MB on disk
+target: 307.7 MB on disk (293.4 MiB in the units du -h uses)
 
 by kind
-  rlib                              90.6 MB   29.5%
+  rlib                              90.6 MB   29.4%
   object file                       79.7 MB   25.9%
-  incremental                       67.9 MB   22.1%
+  incremental                       68.3 MB   22.2%
   binary                            31.7 MB   10.3%
   rmeta                             30.2 MB    9.8%
   build script executable            5.8 MB    1.9%
@@ -31,23 +33,24 @@ by kind
   directories                           0 B    0.0%
 
 by content
-  debuginfo                         89.9 MB   29.3%
+  debuginfo                         89.9 MB   29.2%
   code, data and symbols            87.7 MB   28.5%
-  incremental cache                 67.9 MB   22.1%
+  incremental cache                 68.3 MB   22.2%
   metadata (.rmeta files)           30.2 MB    9.8%
   metadata (inside rlib/dylib)      30.1 MB    9.8%
   other                              1.4 MB    0.5%
+  other = fingerprint, dep-info, build script output, unclassified files
   note: 30.1 MB of metadata is stored twice, as a .rmeta file and inside its .rlib
 
 by profile
-  debug                            307.2 MB  100.0%
+  debug                            307.7 MB  100.0%
   (not in a profile)                 8.2 kB    0.0%
 
 largest crates
-  ripgrep                           63.1 MB   20.6%
-  ignore                            39.6 MB   12.9%
+  ripgrep                           63.9 MB   20.8%
+  ignore                            39.2 MB   12.8%
   regex_automata                    38.1 MB   12.4%
-  regex_syntax                      22.9 MB    7.5%
+  regex_syntax                      22.9 MB    7.4%
   globset                           14.4 MB    4.7%
   aho_corasick                      13.3 MB    4.3%
 ```
@@ -91,8 +94,8 @@ and [`--what-if` on five of them](bench/results/2026-11-14-what-if).
 ## How it counts
 
 - Sizes are on-disk: allocated blocks, not file lengths. The total matches
-  `du -s`. Units are decimal (1 MB = 1 000 000 bytes), so the figure reads
-  lower than `du -h`, which counts in units of 1024.
+  `du -s`. Units are decimal (1 MB = 1 000 000 bytes); `du -h` counts in
+  units of 1024, so the first line also gives the total in MiB.
 - Every inode is counted once. rustc hard-links object files and metadata
   between the compiled artifacts and `incremental/`; a shared file counts as
   the artifact, so "incremental" is what deleting that directory would free.

@@ -41,6 +41,13 @@ Usage: cargo heft [--target-dir <DIR>] [--top <N>] [--json]
   --profile <NAME>    profile for --what-if (default: dev)
   -V, --version       print the version";
 
+const EXAMPLES: &str = "\
+Examples:
+  cargo heft                          measure this workspace's target directory
+  cargo heft --target-dir target/debug --top 5
+  cargo heft --json | jq .total_bytes
+  cargo heft --what-if -- -p my-crate what each profile setting would save";
+
 /// Profile settings `--what-if` tries, as (key, value) pairs of `[profile.*]`.
 const SCENARIOS: &[(&str, &[(&str, &str)])] = &[
     ("as configured", &[]),
@@ -696,7 +703,7 @@ fn run() -> Result<(), String> {
                 return Ok(());
             }
             "-h" | "--help" => {
-                say!("{}\n\n{USAGE}", env!("CARGO_PKG_DESCRIPTION"));
+                say!("{}\n\n{USAGE}\n\n{EXAMPLES}", env!("CARGO_PKG_DESCRIPTION"));
                 return Ok(());
             }
             _ => return Err(format!("unknown argument `{flag}`\n{USAGE}")),
@@ -766,9 +773,43 @@ fn run() -> Result<(), String> {
         });
         say!("{out:#}");
     } else {
-        say!("{}: {} on disk", target.display(), human(r.total));
+        // du -h counts in units of 1024; say so before the totals look wrong.
+        say!(
+            "{}: {} on disk ({:.1} MiB in the units du -h uses)",
+            target.display(),
+            human(r.total),
+            r.total as f64 / 1_048_576.0
+        );
         print_table("by kind", &r.by_kind, r.total, usize::MAX);
         print_table("by content", &r.by_content, r.total, usize::MAX);
+        // "other" in this view is every kind that holds no compiled code.
+        let compiled = [
+            "rlib",
+            "object file",
+            "binary",
+            "dylib",
+            "build script executable",
+            "rmeta",
+            "debuginfo (dSYM)",
+            "debuginfo (split DWARF)",
+            "incremental",
+        ];
+        let mut rest: Vec<_> = r
+            .by_kind
+            .iter()
+            .filter(|(k, b)| **b > 0 && !compiled.contains(&k.as_str()))
+            .collect();
+        rest.sort_by(|a, b| b.1.cmp(a.1));
+        if !rest.is_empty() {
+            let names: Vec<&str> = rest
+                .iter()
+                .map(|(k, _)| match k.as_str() {
+                    "other" => "unclassified files",
+                    k => k,
+                })
+                .collect();
+            say!("  other = {}", names.join(", "));
+        }
         if r.duplicated_metadata > 0 {
             say!(
                 "  note: {} of metadata is stored twice, as a .rmeta file and inside its .rlib",

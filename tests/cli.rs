@@ -457,3 +457,26 @@ fn a_bad_top_value_is_named_in_the_error() {
     out.assert_failed();
     assert!(out.stderr.contains("--top needs a value"), "{}", out.stderr);
 }
+
+#[test]
+fn the_header_gives_the_total_in_du_h_units_too() {
+    let dir = TempDir::new("mib");
+    write_sized(
+        dir.path(),
+        "debug/deps/libfoo-0123456789abcdef.rlib",
+        2 * 1024 * 1024,
+        b'x',
+    );
+    let out = run_in(dir.path(), &["--target-dir", "."]);
+    out.assert_ok();
+    let header = out.stdout.lines().next().unwrap();
+    assert!(header.contains(" on disk ("), "{header}");
+    assert!(header.contains(" MiB in the units du -h uses)"), "{header}");
+    let help = run(&["--help"]);
+    assert!(help.stdout.contains("Examples:"), "{}", help.stdout);
+    let usage = run(&["--top"]);
+    assert!(
+        !usage.stderr.contains("Examples:"),
+        "errors keep the short usage"
+    );
+}
