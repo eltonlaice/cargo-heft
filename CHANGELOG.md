@@ -18,6 +18,13 @@ Notable changes to cargo-heft. The format follows
 - When a profile directory does not exist yet, the hint names the command
   that builds it, such as `cargo build --release`.
 
+### Changed
+
+- The first line also gives the total in MiB, the unit `du -h` uses, so the
+  two can be compared at a glance.
+- Under "by content", a line names the kinds that make up "other".
+- `--help` ends with examples. Error messages keep the short usage.
+
 ## [0.2.1] - 2026-11-15
 
 ### Fixed
