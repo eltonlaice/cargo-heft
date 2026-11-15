@@ -409,6 +409,9 @@ fn a_subdirectory_of_a_target_keeps_its_meaning() {
     assert!(kinds(&whole, "doc") > 0);
 
     // A build script's own dep-info is dep-info, not part of the executable.
+    // On Linux the classic layout hard-links the script under two names, so
+    // count each inode once, as the tool does.
+    let mut seen = std::collections::HashSet::new();
     let exe: u64 = std::fs::read_dir(target.join("debug/build"))
         .unwrap()
         .flatten()
@@ -422,6 +425,11 @@ fn a_subdirectory_of_a_target_keeps_its_meaning() {
             let n = f.file_name().to_string_lossy().into_owned();
             (n.starts_with("build_script_") || n.starts_with("build-script-")) && !n.ends_with(".d")
                 || n == "build_script_build" // the v2 layout, in out/
+        })
+        .filter(|f| {
+            use std::os::unix::fs::MetadataExt;
+            let md = f.metadata().unwrap();
+            seen.insert((md.dev(), md.ino()))
         })
         .map(|f| disk_bytes(&f.path()))
         .sum();
