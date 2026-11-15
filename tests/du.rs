@@ -369,3 +369,91 @@ fn a_reader_that_leaves_early_is_not_a_panic() {
         assert!(stderr.is_empty(), "{stderr}");
     }
 }
+
+#[test]
+fn a_subdirectory_of_a_target_keeps_its_meaning() {
+    let target = Path::new(env!("CARGO_TARGET_TMPDIR")).join("fixture-target-subdirs");
+    let _ = std::fs::remove_dir_all(&target);
+    build_fixture(&target, &[]);
+    stdout(
+        Command::new(env!("CARGO"))
+            .args(["doc", "--no-deps"])
+            .current_dir(fixture())
+            .env("CARGO_TARGET_DIR", &target),
+    );
+    let measure = |dir: &Path| report(&repo(), &["--target-dir", dir.to_str().unwrap()]);
+    let whole = measure(&target);
+    let kinds = |v: &serde_json::Value, k: &str| v["by_kind"][k].as_u64().unwrap_or(0);
+
+    // The debug profile alone: named as such, and the same bytes as in the whole.
+    let debug = measure(&target.join("debug"));
+    assert_consistent(&debug);
+    let profiles: Vec<&String> = debug["by_profile"].as_object().unwrap().keys().collect();
+    assert_eq!(profiles, ["debug"]);
+    assert_eq!(debug["total_bytes"], whole["by_profile"]["debug"]);
+    for kind in [
+        "rlib",
+        "rmeta",
+        "build script output",
+        "build script executable",
+    ] {
+        assert_eq!(kinds(&debug, kind), kinds(&whole, kind), "{kind}");
+    }
+
+    // The docs alone: all of it is documentation, as in the whole.
+    let doc = measure(&target.join("doc"));
+    assert_consistent(&doc);
+    let doc_kinds: Vec<&String> = doc["by_kind"].as_object().unwrap().keys().collect();
+    assert_eq!(doc_kinds, ["directories", "doc"]);
+    assert_eq!(kinds(&doc, "doc"), kinds(&whole, "doc"));
+    assert!(kinds(&whole, "doc") > 0);
+
+    // A build script's own dep-info is dep-info, not part of the executable.
+    // On Linux the classic layout hard-links the script under two names, so
+    // count each inode once, as the tool does.
+    let mut seen = std::collections::HashSet::new();
+    let exe: u64 = std::fs::read_dir(target.join("debug/build"))
+        .unwrap()
+        .flatten()
+        .flat_map(|unit| {
+            std::fs::read_dir(unit.path())
+                .into_iter()
+                .flatten()
+                .flatten()
+        })
+        .filter(|f| {
+            let n = f.file_name().to_string_lossy().into_owned();
+            (n.starts_with("build_script_") || n.starts_with("build-script-")) && !n.ends_with(".d")
+                || n == "build_script_build" // the v2 layout, in out/
+        })
+        .filter(|f| {
+            use std::os::unix::fs::MetadataExt;
+            let md = f.metadata().unwrap();
+            seen.insert((md.dev(), md.ino()))
+        })
+        .map(|f| disk_bytes(&f.path()))
+        .sum();
+    if exe > 0 {
+        assert_eq!(kinds(&whole, "build script executable"), exe);
+    }
+}
+
+#[test]
+fn a_missing_profile_suggests_building_that_profile() {
+    let target = Path::new(env!("CARGO_TARGET_TMPDIR")).join("fixture-target-hint");
+    std::fs::create_dir_all(&target).unwrap();
+    std::fs::write(
+        target.join("CACHEDIR.TAG"),
+        b"Signature: 8a477f597d28d172789f06886806bc55",
+    )
+    .unwrap();
+    for (dir, hint) in [
+        ("release", "`cargo build --release`"),
+        ("bench", "`cargo build --profile bench`"),
+        ("debug", "`cargo build`"),
+    ] {
+        let out = run(&["--target-dir", target.join(dir).to_str().unwrap()]);
+        out.assert_failed();
+        assert!(out.stderr.contains(hint), "{dir}: {}", out.stderr);
+    }
+}

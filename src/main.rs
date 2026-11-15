@@ -70,6 +70,13 @@ fn classify(rel: &Path, executable: bool, script_unit: bool) -> &'static str {
     let comps: Vec<&str> = rel.iter().filter_map(|c| c.to_str()).collect();
     let name = comps.last().copied().unwrap_or("");
     let has = |c: &str| comps.contains(&c);
+    // Everything under doc/ is documentation, including rustdoc's source
+    // pages, which mirror build paths such as build/<pkg>-<hash>/out.
+    match comps.first().copied() {
+        Some("doc") => return "doc",
+        Some("package") => return "package",
+        _ => {}
+    }
     if has("incremental") {
         return "incremental";
     }
@@ -82,8 +89,14 @@ fn classify(rel: &Path, executable: bool, script_unit: bool) -> &'static str {
     if comps.iter().any(|c| c.ends_with(".dSYM")) {
         return "debuginfo (dSYM)";
     }
-    if name.starts_with("build_script_") || name.starts_with("build-script-") {
-        return "build script executable";
+    let script_name = name.starts_with("build_script_") || name.starts_with("build-script-");
+    if script_name {
+        // The script's own dep-info sits next to it and is not its output.
+        return if name.ends_with(".d") {
+            "dep-info"
+        } else {
+            "build script executable"
+        };
     }
     // Everything else a build script unit holds is what running it left
     // behind: `OUT_DIR`, plus its captured output (`output`, `stderr`,
@@ -92,11 +105,6 @@ fn classify(rel: &Path, executable: bool, script_unit: bool) -> &'static str {
     let classic_unit = after(1).is_some_and(|c| strip_hash(c).is_some());
     if classic_unit || (v2 && (after(3) == Some("run") || script_unit)) {
         return "build script output";
-    }
-    match comps.first().copied() {
-        Some("doc") => return "doc",
-        Some("package") => return "package",
-        _ => {}
     }
     match rel.extension().and_then(|e| e.to_str()) {
         Some("rlib") => "rlib",
@@ -295,7 +303,7 @@ fn walk(
 
 /// The directories that have the shape of a profile directory: `debug`,
 /// `release`, or `<triple>/debug`, but not `doc`, `package` or `tmp`.
-fn profile_dirs(dirs: &[(PathBuf, u64)]) -> HashSet<&Path> {
+fn profile_dirs(dirs: &[(PathBuf, u64)]) -> HashSet<PathBuf> {
     let all: HashSet<&Path> = dirs.iter().map(|(d, _)| d.as_path()).collect();
     let has = |d: &Path, child: &str| all.contains(d.join(child).as_path());
     all.iter()
@@ -306,12 +314,49 @@ fn profile_dirs(dirs: &[(PathBuf, u64)]) -> HashSet<&Path> {
                     .iter()
                     .any(|c| has(d, c))
         })
+        .map(Path::to_path_buf)
         .collect()
 }
 
+/// The same shape, checked on disk.
+fn is_profile_dir(dir: &Path) -> bool {
+    dir.join("build").is_dir()
+        && ["deps", "incremental", "examples"]
+            .iter()
+            .any(|c| dir.join(c).is_dir())
+}
+
+/// When `--target-dir` points inside a target directory (`target/debug`,
+/// `target/doc`), where it sits in that directory: (target root, path of the
+/// measured directory relative to it). Paths are then read as if measured
+/// from the root, so a profile, `doc/` or a build script unit keeps its
+/// meaning. Cargo marks a target root with CACHEDIR.TAG; the first component
+/// must be one Cargo creates there, so an unrelated directory that happens
+/// to live under a target (`target/tmp/...`) is measured as it is.
+fn locate_in_target(root: &Path) -> Option<(PathBuf, PathBuf)> {
+    let root = root.canonicalize().ok()?;
+    if root.join("CACHEDIR.TAG").is_file() {
+        return None;
+    }
+    let base = root
+        .ancestors()
+        .skip(1)
+        .take(4)
+        .find(|a| a.join("CACHEDIR.TAG").is_file())?;
+    let prefix = root.strip_prefix(base).ok()?.to_path_buf();
+    let first = base.join(prefix.iter().next()?);
+    let known = ["doc", "package"].iter().any(|d| first.ends_with(d))
+        || is_profile_dir(&first)
+        || fs::read_dir(&first)
+            .ok()?
+            .flatten()
+            .any(|e| is_profile_dir(&e.path())); // <triple>/<profile>
+    known.then(|| (base.to_path_buf(), prefix))
+}
+
 /// The outermost profile directory a path is in.
-fn profile_of(rel: &Path, profiles: &HashSet<&Path>) -> String {
-    let mut inside: Vec<&Path> = rel.ancestors().filter(|a| profiles.contains(a)).collect();
+fn profile_of(rel: &Path, profiles: &HashSet<PathBuf>) -> String {
+    let mut inside: Vec<&Path> = rel.ancestors().filter(|a| profiles.contains(*a)).collect();
     match inside.pop() {
         Some(profile) => profile.to_string_lossy().into_owned(),
         None => "(not in a profile)".into(),
@@ -319,9 +364,9 @@ fn profile_of(rel: &Path, profiles: &HashSet<&Path>) -> String {
 }
 
 /// What the whole tree says about how to read a single path.
-struct Layout<'a> {
+struct Layout {
     /// Directories that are profiles.
-    profiles: HashSet<&'a Path>,
+    profiles: HashSet<PathBuf>,
     /// Target name to package name, where Cargo's fingerprints tell.
     packages: HashMap<String, String>,
 }
@@ -385,10 +430,22 @@ fn measure(root: &Path) -> io::Result<Report> {
     let mut r = Report::default();
     let mut files = Vec::new();
     let (bytes, ..) = disk_usage(&fs::symlink_metadata(root)?);
-    let mut dirs = vec![(PathBuf::new(), bytes)];
-    walk(root, root, &mut files, &mut dirs)?;
+    // Inside a target directory, name paths from its root (see locate_in_target).
+    let (base, prefix) = locate_in_target(root).unwrap_or((root.to_path_buf(), PathBuf::new()));
+    let mut dirs = vec![(prefix.clone(), bytes)];
+    walk(&base, root, &mut files, &mut dirs)?;
+    let mut profiles = profile_dirs(&dirs);
+    // A profile the measured directory sits in, such as `debug` when measuring
+    // `debug/build`, is above it and was not walked.
+    profiles.extend(
+        prefix
+            .ancestors()
+            .filter(|a| !a.as_os_str().is_empty() && is_profile_dir(&base.join(a)))
+            .map(Path::to_path_buf),
+    );
+    let root = base.as_path();
     let layout = Layout {
-        profiles: profile_dirs(&dirs),
+        profiles,
         packages: files.iter().filter_map(|f| target_of(&f.rel)).collect(),
     };
     // A v2 unit that has `run/` is a build script run; its `out/` is OUT_DIR.
@@ -681,8 +738,17 @@ fn run() -> Result<(), String> {
         } else {
             "does not exist"
         };
+        // A missing profile directory next to others: build that profile.
+        let in_target = target
+            .parent()
+            .is_some_and(|p| p.join("CACHEDIR.TAG").is_file());
+        let build = match target.file_name().and_then(|n| n.to_str()) {
+            Some("release") if in_target => "cargo build --release".to_string(),
+            Some(name) if in_target && name != "debug" => format!("cargo build --profile {name}"),
+            _ => "cargo build".to_string(),
+        };
         return Err(format!(
-            "nothing to measure: {} {why}\nBuild the workspace first (`cargo build`), or point at a target directory with --target-dir.",
+            "nothing to measure: {} {why}\nBuild the workspace first (`{build}`), or point at a target directory with --target-dir.",
             target.display()
         ));
     }
@@ -916,6 +982,25 @@ mod tests {
     }
 
     #[test]
+    fn doc_and_dep_info_are_not_mistaken_for_build_script_files() {
+        let k = |p: &str| classify(Path::new(p), false, false);
+        // rustdoc's source page for a file a build script generated.
+        assert_eq!(
+            k("doc/src/dep/abs/target/debug/build/dep-0123456789abcdef/out/generated.rs.html"),
+            "doc"
+        );
+        assert_eq!(classify(Path::new("doc/.lock"), true, false), "doc");
+        assert_eq!(
+            k("debug/build/dep-0123456789abcdef/build_script_build-0123456789abcdef.d"),
+            "dep-info"
+        );
+        assert_eq!(
+            k("debug/build/dep-0123456789abcdef/build_script_build-0123456789abcdef"),
+            "build script executable"
+        );
+    }
+
+    #[test]
     fn names_the_crate() {
         let c = |p: &str| crate_of(Path::new(p));
         assert_eq!(
@@ -1091,7 +1176,7 @@ mod tests {
     fn a_report_accounts_for_each_added_path_once() {
         let mut r = Report::default();
         let layout = Layout {
-            profiles: HashSet::from([Path::new("debug")]),
+            profiles: HashSet::from([PathBuf::from("debug")]),
             packages: HashMap::from([("notes".to_string(), "notebook".to_string())]),
         };
         r.add(Path::new(""), "directories", 4096, &layout);

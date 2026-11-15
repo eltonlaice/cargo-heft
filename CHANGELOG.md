@@ -6,6 +6,18 @@ Notable changes to cargo-heft. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- `--target-dir` pointed inside a target directory, such as `target/debug`
+  or `target/doc`, reads paths as if measured from the root. The profile had
+  an empty name and documentation showed up as "other".
+- rustdoc's source pages for files a build script generated are
+  documentation, not build script output.
+- A build script's own `.d` file is dep-info. It was counted with the
+  executable.
+- When a profile directory does not exist yet, the hint names the command
+  that builds it, such as `cargo build --release`.
+
 ## [0.2.1] - 2026-11-15
 
 ### Fixed
