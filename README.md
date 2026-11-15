@@ -2,35 +2,61 @@
 
 [![CI](https://github.com/eltonlaice/cargo-heft/actions/workflows/ci.yml/badge.svg)](https://github.com/eltonlaice/cargo-heft/actions/workflows/ci.yml)
 [![crates.io](https://img.shields.io/crates/v/cargo-heft.svg)](https://crates.io/crates/cargo-heft)
+[![Rust](https://img.shields.io/badge/rust-1.88%2B-blue.svg)](https://github.com/eltonlaice/cargo-heft)
 
-Find out what takes up space in your Cargo `target/` directory.
+cargo-heft tells you what takes up space in a Cargo `target/` directory, and
+how much each profile setting would save.
+
+A `target/` directory easily grows to several gigabytes. Disk usage is the
+second most common complaint about the Rust toolchain in the
+[2025 State of Rust survey], and the Rust project has a [goal] to reduce it.
+`du` gives you one number. cargo-heft splits it by kind of file, by crate,
+and by what is inside the files: debuginfo, metadata and code.
+
+It only reads: nothing in your `target/` is changed or deleted. It runs on
+macOS and Linux.
+
+[2025 State of Rust survey]: https://blog.rust-lang.org/2026/03/02/2025-State-Of-Rust-Survey-results/
+[goal]: https://goals.rust-lang.org/2026/target-dir-size.html
+
+## [Change log](CHANGELOG.md)
+
+## Features
+
+- Sizes are what the files take on disk, and the total matches `du -s`.
+- Hard links are counted once, so the numbers add up.
+- Four views: by kind of file, by content, by profile and by crate.
+- Looks inside `.rlib` files, objects and binaries to separate metadata,
+  debuginfo and code.
+- Points out metadata that is stored twice, as a `.rmeta` file and inside
+  the `.rlib`.
+- `--what-if` builds your workspace once per profile setting and shows how
+  much each one would save.
+- Understands both the classic target layout and the build-dir layout of
+  Cargo 1.100.
+- JSON output for scripts and CI.
+
+See [how it counts](docs/how-it-counts.md) for the details and the limits.
+
+## Usage
 
 ```
 cargo install cargo-heft
-cargo heft
 ```
 
-Needs Rust 1.88 or later to install.
+Then, in a workspace you have built:
 
-It prints the size of the directory four ways: by kind of file, by what is
-inside the files, by profile and by crate. This is ripgrep after a fresh
-`dev` build:
+```
+cargo heft              # measure the target directory
+cargo heft --top 5      # list only the five largest crates
+cargo heft --what-if    # what would each profile setting save?
+cargo heft --json       # machine-readable output
+```
+
+Part of the output for ripgrep after a `dev` build:
 
 ```
 target: 307.7 MB on disk (293.4 MiB in the units du -h uses)
-
-by kind
-  rlib                              90.6 MB   29.4%
-  object file                       79.7 MB   25.9%
-  incremental                       68.3 MB   22.2%
-  binary                            31.7 MB   10.3%
-  rmeta                             30.2 MB    9.8%
-  build script executable            5.8 MB    1.9%
-  fingerprint                      983.0 kB    0.3%
-  dep-info                         282.6 kB    0.1%
-  build script output              131.1 kB    0.0%
-  other                              8.2 kB    0.0%
-  directories                           0 B    0.0%
 
 by content
   debuginfo                         89.9 MB   29.2%
@@ -39,31 +65,12 @@ by content
   metadata (.rmeta files)           30.2 MB    9.8%
   metadata (inside rlib/dylib)      30.1 MB    9.8%
   other                              1.4 MB    0.5%
-  other = fingerprint, dep-info, build script output, unclassified files
   note: 30.1 MB of metadata is stored twice, as a .rmeta file and inside its .rlib
-
-by profile
-  debug                            307.7 MB  100.0%
-  (not in a profile)                 8.2 kB    0.0%
-
-largest crates
-  ripgrep                           63.9 MB   20.8%
-  ignore                            39.2 MB   12.8%
-  regex_automata                    38.1 MB   12.4%
-  regex_syntax                      22.9 MB    7.4%
-  globset                           14.4 MB    4.7%
-  aho_corasick                      13.3 MB    4.3%
 ```
 
-## What would a setting save?
-
-`cargo heft --what-if` builds the workspace from scratch once per profile
-setting, in a temporary directory, and compares the sizes. Nothing in your
-own `target/` is touched.
+And `--what-if` on the same project:
 
 ```
-fresh `dev` builds, settings as they would go in [profile.dev]
-
   setting                                  size  vs first    build
   as configured                        308.1 MB               8.5s
   debug = "line-tables-only"           245.5 MB    -20.3%     6.7s
@@ -72,73 +79,42 @@ fresh `dev` builds, settings as they would go in [profile.dev]
   line-tables-only, no incremental     172.1 MB    -44.1%     5.4s
 ```
 
-It runs five full builds, so it takes five times a clean build.
-`incremental = false` makes rebuilds after an edit slower: it suits CI more
-than local work.
-
-## On real projects
-
-Eighteen well-known projects, `dev` profile, Rust 1.100:
-
-| | `target/` | Debuginfo | Incremental cache | Metadata | of which stored twice | Code |
-|---|--:|--:|--:|--:|--:|--:|
-| macOS arm64 | 47.5 GB | 31% | 21% | 17% | 8% | 30% |
-| Linux x86_64 | 53.7 GB | 25% | 34% | 15% | 7% | 24% |
-
-Per-project tables, the raw JSON and the scripts to repeat the measurements
-are in [`bench/results`](bench/results): the 18 projects on
-[macOS](bench/results/2026-11-14-rust-1.100) and on
-[Linux](bench/results/2026-11-15-linux), with what explains the difference,
-and [`--what-if` on five of them](bench/results/2026-11-14-what-if).
-
-## How it counts
-
-- Sizes are on-disk: allocated blocks, not file lengths. The total matches
-  `du -s`. Units are decimal (1 MB = 1 000 000 bytes); `du -h` counts in
-  units of 1024, so the first line also gives the total in MiB.
-- Every inode is counted once. rustc hard-links object files and metadata
-  between the compiled artifacts and `incremental/`; a shared file counts as
-  the artifact, so "incremental" is what deleting that directory would free.
-- "By content" opens `.rlib` archives, object files and binaries and splits
-  each file's on-disk bytes into metadata, debuginfo and the rest, in
-  proportion to the bytes found inside.
-- Files are classified by name. Both target layouts are understood: the
-  classic one and the build-dir layout that Cargo uses from 1.100.
-
 ## Options
 
 - `--target-dir <DIR>`: measure this directory instead of the workspace's.
 - `--top <N>`: how many crates to list (default 15).
-- `--json`: machine-readable output, for both modes. It carries a
-  `schema_version`, which goes up when a key is removed or renamed or a value
-  changes meaning; new keys can appear without a new version.
-- `--what-if`: compare profile settings, as above.
-- `--profile <NAME>`: profile for `--what-if` (default `dev`).
+- `--json`: machine-readable output. It has a `schema_version`, which goes up
+  when a key is removed or renamed or a value changes meaning.
+- `--what-if`: compare profile settings.
+- `--profile <NAME>`: the profile `--what-if` builds (default `dev`).
 - `-- <args>`: extra arguments for `cargo build` in `--what-if`, such as
-  `-p my-crate` or `--features x`.
+  `-p my-crate`.
 
-Values can be written `--flag value` or `--flag=value`. A flag that does not
-apply to the mode you asked for is an error, not something silently ignored.
+## Results
 
-## Limits
-
-- macOS and Linux only. On Windows the code falls back to file lengths and
-  cannot detect hard links, so the numbers would not be reliable.
-- The content view reads ELF, Mach-O and COFF. Other formats, such as
-  WebAssembly and LLVM bitcode, count entirely as code, and `.a` static
-  libraries are not opened.
-- Crates are told apart by file and directory names, so the per-crate table
-  is an attribution, not an exact account. The total and the other three
-  views cover every byte.
-- It measures; it does not delete anything. For cleaning there are
-  `cargo clean`, [cargo-sweep](https://crates.io/crates/cargo-sweep) and
-  [kondo](https://crates.io/crates/kondo).
+On 18 well-known projects (ripgrep, tokio, cargo, rust-analyzer, ruff, uv and
+others), a quarter to a third of `target/` is debuginfo, and a fifth to a
+third is the incremental cache. A recent nightly needs 19% less space than
+Rust 1.100, about half of that because metadata is no longer stored twice. The tables,
+the raw data and the scripts are in [`bench/results`](bench/results).
 
 ## Contributing
 
-See [CONTRIBUTING.md](CONTRIBUTING.md). Changes are listed in
-[CHANGELOG.md](CHANGELOG.md).
+See [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## License
 
-MIT or Apache-2.0, at your option.
+Licensed under either of:
+
+ * Apache License, Version 2.0, ([LICENSE-APACHE](LICENSE-APACHE) or
+   https://www.apache.org/licenses/LICENSE-2.0)
+ * MIT license ([LICENSE-MIT](LICENSE-MIT) or
+   https://opensource.org/license/mit)
+
+at your option.
+
+### Contribution
+
+Unless you explicitly state otherwise, any contribution intentionally submitted
+for inclusion in the work by you, as defined in the Apache-2.0 license, shall be
+dual licensed as above, without any additional terms or conditions.
