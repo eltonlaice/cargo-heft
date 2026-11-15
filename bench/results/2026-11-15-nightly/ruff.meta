@@ -1,0 +1,6 @@
+status=ok
+url=https://github.com/astral-sh/ruff
+commit=b140af2f48bddf33a1ae984174af3180236aaaaf
+build_seconds=256
+rustc=rustc 1.102.0-nightly (5f4effd57 2026-11-13)
+host=aarch64-apple-darwin

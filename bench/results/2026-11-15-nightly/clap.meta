@@ -1,0 +1,6 @@
+status=ok
+url=https://github.com/clap-rs/clap
+commit=ec93e71255c0b833a34f50662a3fdb22f53f6ded
+build_seconds=3
+rustc=rustc 1.102.0-nightly (5f4effd57 2026-11-13)
+host=aarch64-apple-darwin
