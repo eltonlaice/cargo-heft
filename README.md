@@ -87,6 +87,9 @@ And `--what-if` on the same project:
   when a key is removed or renamed or a value changes meaning.
 - `--what-if`: compare profile settings.
 - `--profile <NAME>`: the profile `--what-if` builds (default `dev`).
+- `--only <IDS>`: the settings `--what-if` builds, comma-separated, such as
+  `--only configured,line-tables`. The ids are `configured`, `line-tables`,
+  `no-debug`, `no-incremental` and `line-tables-no-incremental`.
 - `-- <args>`: extra arguments for `cargo build` in `--what-if`, such as
   `-p my-crate`.
 

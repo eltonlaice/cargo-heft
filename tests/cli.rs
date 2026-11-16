@@ -33,6 +33,7 @@ fn help_documents_every_option() {
             "--json",
             "--what-if",
             "--profile <NAME>",
+            "--only <IDS>",
             "-V, --version",
         ] {
             assert!(
@@ -498,5 +499,29 @@ fn the_header_gives_the_total_in_du_h_units_too() {
     assert!(
         !usage.stderr.contains("Examples:"),
         "errors keep the short usage"
+    );
+}
+
+#[test]
+fn only_takes_known_setting_ids_and_only_with_what_if() {
+    let out = run(&["--what-if", "--only", "configured,smaller"]);
+    out.assert_failed();
+    assert!(
+        out.stderr.contains("unknown setting `smaller`"),
+        "{}",
+        out.stderr
+    );
+    assert!(
+        out.stderr.contains("line-tables-no-incremental"),
+        "{}",
+        out.stderr
+    );
+
+    let out = run(&["--only", "configured"]);
+    out.assert_failed();
+    assert!(
+        out.stderr.contains("--only applies to --what-if"),
+        "{}",
+        out.stderr
     );
 }

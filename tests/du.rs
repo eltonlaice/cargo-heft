@@ -195,6 +195,20 @@ fn what_if_measures_each_setting() {
             "line-tables-only, no incremental",
         ]
     );
+    let ids: Vec<&str> = scenarios
+        .iter()
+        .map(|s| s["id"].as_str().unwrap())
+        .collect();
+    assert_eq!(
+        ids,
+        [
+            "configured",
+            "line-tables",
+            "no-debug",
+            "no-incremental",
+            "line-tables-no-incremental"
+        ]
+    );
     assert_eq!(scenarios[0]["settings"], serde_json::json!({}));
     assert_eq!(
         scenarios[1]["settings"],
@@ -256,6 +270,72 @@ fn a_failing_what_if_build_is_reported_and_the_scratch_dir_is_removed() {
         "the temporary build directory was left behind: {}",
         scratch.display()
     );
+}
+
+#[test]
+fn only_builds_the_chosen_settings_in_the_order_given() {
+    let json = stdout(
+        Command::new(env!("CARGO_BIN_EXE_cargo-heft"))
+            .args([
+                "--what-if",
+                "--json",
+                "--only",
+                "no-debug,configured,no-debug",
+            ])
+            .current_dir(fixture())
+            .env_remove("CARGO_TARGET_DIR")
+            .env_remove("CI"),
+    );
+    let v: serde_json::Value = serde_json::from_str(&json).unwrap();
+    let ids: Vec<&str> = v["scenarios"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|s| s["id"].as_str().unwrap())
+        .collect();
+    assert_eq!(ids, ["no-debug", "configured"], "a repeated id builds once");
+}
+
+#[test]
+fn ctrl_c_during_what_if_removes_the_scratch_dir() {
+    #[cfg(unix)]
+    {
+        use std::io::{BufRead, BufReader};
+
+        let mut child = Command::new(env!("CARGO_BIN_EXE_cargo-heft"))
+            .args(["--what-if"])
+            .current_dir(fixture())
+            .env_remove("CARGO_TARGET_DIR")
+            .env_remove("CI")
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .expect("spawn cargo-heft");
+        let pid = child.id();
+        let mut stderr = BufReader::new(child.stderr.take().unwrap());
+        let mut line = String::new();
+        stderr.read_line(&mut line).unwrap();
+        assert!(line.starts_with("building 1/5"), "{line}");
+        // Only this process gets the signal here, not cargo as in a terminal,
+        // so the first build runs to its end before the tool stops.
+        let killed = Command::new("kill")
+            .args(["-INT", &pid.to_string()])
+            .status()
+            .unwrap();
+        assert!(killed.success());
+        let mut rest = String::new();
+        std::io::Read::read_to_string(&mut stderr, &mut rest).unwrap();
+        let status = child.wait().unwrap();
+
+        assert_eq!(status.code(), Some(130), "{rest}");
+        assert!(rest.contains("interrupted"), "{rest}");
+        assert!(
+            !rest.contains("building 2/5"),
+            "it went on building: {rest}"
+        );
+        let scratch = std::env::temp_dir().join(format!("cargo-heft-{pid}"));
+        assert!(!scratch.exists(), "left behind: {}", scratch.display());
+    }
 }
 
 #[test]

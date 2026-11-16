@@ -31,7 +31,7 @@ const SCHEMA_VERSION: u32 = 1;
 
 const USAGE: &str = "\
 Usage: cargo heft [--target-dir <DIR>] [--top <N>] [--json]
-       cargo heft --what-if [--profile <NAME>] [--json] [-- <cargo build args>]
+       cargo heft --what-if [--profile <NAME>] [--only <IDS>] [--json] [-- <cargo build args>]
 
   --target-dir <DIR>  directory to measure (default: the workspace's target dir)
   --top <N>           crates to list (default 15)
@@ -39,6 +39,9 @@ Usage: cargo heft [--target-dir <DIR>] [--top <N>] [--json]
   --what-if           build this workspace from scratch once per profile setting,
                       in a temporary directory, and compare the sizes
   --profile <NAME>    profile for --what-if (default: dev)
+  --only <IDS>        settings --what-if builds, comma-separated (default: all):
+                      configured, line-tables, no-debug, no-incremental,
+                      line-tables-no-incremental
   -V, --version       print the version";
 
 const EXAMPLES: &str = "\
@@ -46,22 +49,70 @@ Examples:
   cargo heft                          measure this workspace's target directory
   cargo heft --target-dir target/debug --top 5
   cargo heft --json | jq .total_bytes
-  cargo heft --what-if -- -p my-crate what each profile setting would save";
+  cargo heft --what-if -- -p my-crate what each profile setting would save
+  cargo heft --what-if --only configured,line-tables";
 
-/// Profile settings `--what-if` tries, as (key, value) pairs of `[profile.*]`.
-const SCENARIOS: &[(&str, &[(&str, &str)])] = &[
-    ("as configured", &[]),
+/// Profile settings `--what-if` tries: the id `--only` takes, the name shown,
+/// and (key, value) pairs of `[profile.*]`.
+type Scenario = (
+    &'static str,
+    &'static str,
+    &'static [(&'static str, &'static str)],
+);
+const SCENARIOS: &[Scenario] = &[
+    ("configured", "as configured", &[]),
     (
+        "line-tables",
         "debug = \"line-tables-only\"",
         &[("debug", "line-tables-only")],
     ),
-    ("debug = false", &[("debug", "false")]),
-    ("incremental = false", &[("incremental", "false")]),
+    ("no-debug", "debug = false", &[("debug", "false")]),
     (
+        "no-incremental",
+        "incremental = false",
+        &[("incremental", "false")],
+    ),
+    (
+        "line-tables-no-incremental",
         "line-tables-only, no incremental",
         &[("debug", "line-tables-only"), ("incremental", "false")],
     ),
 ];
+
+/// Ctrl-C reaches cargo and this process together. Remembering it, instead of
+/// dying at once, lets `--what-if` remove its scratch directory first.
+#[cfg(unix)]
+mod interrupt {
+    use std::sync::atomic::{AtomicBool, Ordering};
+
+    static HIT: AtomicBool = AtomicBool::new(false);
+
+    extern "C" fn on_sigint(_: i32) {
+        HIT.store(true, Ordering::SeqCst);
+    }
+
+    unsafe extern "C" {
+        fn signal(sig: i32, handler: extern "C" fn(i32)) -> usize;
+    }
+
+    pub fn catch() {
+        // SIGINT is 2 on every Unix. The handler only stores a flag, which is
+        // async-signal-safe, and child processes get the default back at exec.
+        unsafe { signal(2, on_sigint) };
+    }
+
+    pub fn hit() -> bool {
+        HIT.load(Ordering::SeqCst)
+    }
+}
+
+#[cfg(not(unix))]
+mod interrupt {
+    pub fn catch() {}
+    pub fn hit() -> bool {
+        false
+    }
+}
 
 fn is_hash(s: &str) -> bool {
     s.len() == 16 && s.bytes().all(|b| b.is_ascii_hexdigit())
@@ -527,7 +578,21 @@ impl Drop for Scratch {
     }
 }
 
-fn what_if(profile: &str, extra: &[OsString], json: bool) -> Result<(), String> {
+fn stop_if_interrupted(scratch: &Scratch) {
+    if interrupt::hit() {
+        let _ = fs::remove_dir_all(&scratch.0);
+        eprintln!("interrupted; the temporary build directory was removed");
+        std::process::exit(130); // 128 + SIGINT, as a shell reports it
+    }
+}
+
+fn what_if(
+    profile: &str,
+    only: &[&Scenario],
+    extra: &[OsString],
+    json: bool,
+) -> Result<(), String> {
+    interrupt::catch();
     let scratch = Scratch(env::temp_dir().join(format!("cargo-heft-{}", std::process::id())));
     let _ = cargo().arg("fetch").output(); // keep downloads out of the first timing
     let prefix = format!(
@@ -535,8 +600,9 @@ fn what_if(profile: &str, extra: &[OsString], json: bool) -> Result<(), String> 
         profile.to_uppercase().replace('-', "_")
     );
     let mut rows = Vec::new();
-    for (i, (name, settings)) in SCENARIOS.iter().enumerate() {
-        eprintln!("building {}/{}: {name}", i + 1, SCENARIOS.len());
+    for (i, &&(id, name, settings)) in only.iter().enumerate() {
+        stop_if_interrupted(&scratch);
+        eprintln!("building {}/{}: {name}", i + 1, only.len());
         let dir = scratch.0.join(i.to_string());
         let start = std::time::Instant::now();
         let out = cargo()
@@ -551,6 +617,7 @@ fn what_if(profile: &str, extra: &[OsString], json: bool) -> Result<(), String> 
             .output()
             .map_err(|e| format!("could not run cargo build: {e}"))?;
         let seconds = start.elapsed().as_secs_f64();
+        stop_if_interrupted(&scratch);
         if !out.status.success() {
             return Err(format!(
                 "cargo build failed ({name}):\n{}",
@@ -561,15 +628,15 @@ fn what_if(profile: &str, extra: &[OsString], json: bool) -> Result<(), String> 
             .map_err(|e| format!("{}: {e}", dir.display()))?
             .total;
         let _ = fs::remove_dir_all(&dir); // one build on disk at a time
-        rows.push((*name, *settings, total, seconds));
+        rows.push((id, name, settings, total, seconds));
     }
     drop(scratch); // before printing: a closed pipe ends the process at once
     if json {
         let scenarios: Vec<_> = rows
             .iter()
-            .map(|(name, settings, total, seconds)| {
+            .map(|(id, name, settings, total, seconds)| {
                 let settings: BTreeMap<_, _> = settings.iter().copied().collect();
-                serde_json::json!({ "name": name, "settings": settings, "total_bytes": total, "build_seconds": seconds })
+                serde_json::json!({ "id": id, "name": name, "settings": settings, "total_bytes": total, "build_seconds": seconds })
             })
             .collect();
         say!(
@@ -578,7 +645,7 @@ fn what_if(profile: &str, extra: &[OsString], json: bool) -> Result<(), String> 
         );
         return Ok(());
     }
-    let base = rows[0].2;
+    let base = rows[0].3;
     say!("fresh `{profile}` builds, settings as they would go in [profile.{profile}]\n");
     say!(
         "  {:<34} {:>10} {:>9} {:>8}",
@@ -587,7 +654,7 @@ fn what_if(profile: &str, extra: &[OsString], json: bool) -> Result<(), String> 
         "vs first",
         "build"
     );
-    for (name, _, total, seconds) in &rows {
+    for (_, name, _, total, seconds) in &rows {
         let delta = if *total == base || base == 0 {
             String::new()
         } else {
@@ -679,7 +746,7 @@ fn run() -> Result<(), String> {
         args.next(); // invoked as `cargo heft`
     }
     let (mut target, mut top, mut json) = (None, None, false);
-    let (mut whatif, mut profile, mut extra) = (false, None, None);
+    let (mut whatif, mut profile, mut extra, mut only) = (false, None, None, None);
     while let Some(a) = args.next() {
         // `--flag=value` as well as `--flag value`.
         let (flag, mut inline) = match a.to_str().and_then(|s| s.split_once('=')) {
@@ -706,6 +773,24 @@ fn run() -> Result<(), String> {
                         .map_err(|_| "--profile needs a profile name in UTF-8")?,
                 );
             }
+            "--only" => {
+                let ids = value(&flag, &mut inline, &mut args)?;
+                let ids = ids.to_string_lossy();
+                let mut picked = Vec::new();
+                for id in ids.split(',').map(str::trim) {
+                    let s = SCENARIOS.iter().find(|s| s.0 == id).ok_or_else(|| {
+                        let known: Vec<_> = SCENARIOS.iter().map(|s| s.0).collect();
+                        format!(
+                            "--only: unknown setting `{id}`, expected some of: {}",
+                            known.join(", ")
+                        )
+                    })?;
+                    if !picked.contains(&s) {
+                        picked.push(s);
+                    }
+                }
+                only = Some(picked);
+            }
             "--json" => json = true,
             "--what-if" => whatif = true,
             "--" => extra = Some(args.by_ref().collect::<Vec<_>>()),
@@ -730,6 +815,7 @@ fn run() -> Result<(), String> {
         }
         true if top.is_some() => Some("--top does not apply to --what-if"),
         false if profile.is_some() => Some("--profile only applies to --what-if"),
+        false if only.is_some() => Some("--only applies to --what-if"),
         false if extra.is_some() => {
             Some("arguments after `--` go to `cargo build`, so they only apply to --what-if")
         }
@@ -740,8 +826,10 @@ fn run() -> Result<(), String> {
     }
     let top = top.unwrap_or(15usize);
     if whatif {
+        let all: Vec<_> = SCENARIOS.iter().collect();
         return what_if(
             profile.as_deref().unwrap_or("dev"),
+            &only.unwrap_or(all),
             &extra.unwrap_or_default(),
             json,
         );
