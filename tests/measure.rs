@@ -392,3 +392,58 @@ fn a_target_directory_of_files_only_still_adds_up() {
     #[cfg(unix)]
     assert_matches_du(report["total_bytes"].as_u64().unwrap(), root);
 }
+
+#[test]
+fn a_static_library_is_opened_like_an_rlib() {
+    let dir = TempDir::new("staticlib");
+    let src = write_file(
+        dir.path(),
+        "lib.rs",
+        b"#[no_mangle] pub extern \"C\" fn heft_fx(x: u32) -> u32 { x * 3 }\n",
+    );
+    let target = mkdir(dir.path(), "target");
+    let lib = target.join("debug/deps/libfx-0123456789abcdef.a");
+    mkdir(&target, "debug/deps");
+    let rustc = std::env::var("RUSTC").unwrap_or_else(|_| "rustc".into());
+    let ok = std::process::Command::new(rustc)
+        .args([
+            "--crate-type",
+            "staticlib",
+            "--edition",
+            "2021",
+            "-C",
+            "debuginfo=2",
+            "-o",
+        ])
+        .arg(&lib)
+        .arg(&src)
+        .status()
+        .expect("run rustc")
+        .success();
+    assert!(ok, "rustc could not build the static library");
+
+    let report = report(dir.path(), &["--target-dir", target.to_str().unwrap()]);
+    assert_consistent(&report);
+    assert_eq!(
+        report["by_kind"]["static library"].as_u64(),
+        Some(
+            report["total_bytes"].as_u64().unwrap()
+                - report["by_kind"]["directories"].as_u64().unwrap_or(0)
+        ),
+        "{report}"
+    );
+    // Its members are object files, so their debuginfo is found, and nothing
+    // of it lands in "other".
+    assert!(
+        report["by_content"]["debuginfo"].as_u64().unwrap_or(0) > 0,
+        "{report}"
+    );
+    assert_eq!(
+        report["by_content"]
+            .get("other")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0),
+        0,
+        "{report}"
+    );
+}

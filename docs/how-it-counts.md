@@ -7,6 +7,13 @@ the total matches `du -s`. Units are decimal: 1 MB is 1,000,000 bytes. `du -h`
 counts in units of 1024, which is why the first line of the output also gives
 the total in MiB.
 
+When the target directory is a symlink, it is measured where it points, and
+the first line shows both paths. Compare with `du -sL link` or `du -s` on the
+real path: `du -s link` counts only the link.
+
+A directory that cannot be read stops the measurement with its path, rather
+than giving a total that would be too small.
+
 ## Hard links
 
 Every file is counted once, however many names it has. rustc hard-links
@@ -16,11 +23,11 @@ would free by deleting that directory.
 
 ## What is inside the files
 
-The "by content" view opens `.rlib` archives, object files and binaries, and
-splits each file's size on disk into metadata, debuginfo and the rest, in
-proportion to what it finds inside. It reads ELF, Mach-O and COFF. Other
-formats, such as WebAssembly or LLVM bitcode, count entirely as code, and `.a`
-static libraries are not opened yet.
+The "by content" view opens `.rlib` archives, `.a` static libraries, object
+files and binaries, and splits each file's size on disk into metadata,
+debuginfo and the rest, in proportion to what it finds inside. It reads ELF,
+Mach-O and COFF. Other formats, such as WebAssembly or LLVM bitcode, count
+entirely as code.
 
 "other" in that view is everything that holds no compiled code: fingerprints,
 dep-info, build script output, documentation. The output lists which kinds it
