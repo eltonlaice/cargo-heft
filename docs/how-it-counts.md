@@ -62,5 +62,6 @@ the profile and the kinds keep their names.
 - It does not support Windows. There the code would fall back to file
   lengths and could not detect hard links, so the numbers would be wrong.
 - `--what-if` runs five full builds, so it takes five times as long as a
-  clean build. `incremental = false` also makes rebuilds after an edit
+  clean build. `--only` picks fewer. Ctrl-C stops it and removes the
+  temporary build directory. `incremental = false` also makes rebuilds after an edit
   slower, so that saving is for CI more than for local work.

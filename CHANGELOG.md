@@ -16,6 +16,11 @@ Notable changes to cargo-heft. The format follows
 
 ### Added
 
+- `--what-if --only <IDS>` builds only the chosen settings, such as
+  `--only configured,line-tables`. The JSON output gives each scenario's
+  `id`. (#25)
+- Ctrl-C during `--what-if` removes the temporary build directory and exits
+  with code 130. (#25)
 - `.a` static libraries are opened like `.rlib` archives: their debuginfo is
   counted as debuginfo, and they are a kind of their own instead of "other".
   (#26)
