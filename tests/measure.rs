@@ -432,18 +432,18 @@ fn a_static_library_is_opened_like_an_rlib() {
         ),
         "{report}"
     );
-    // Its members are object files, so their debuginfo is found, and nothing
-    // of it lands in "other".
-    assert!(
-        report["by_content"]["debuginfo"].as_u64().unwrap_or(0) > 0,
-        "{report}"
-    );
-    assert_eq!(
-        report["by_content"]
-            .get("other")
+    // Its members are object files, so their debuginfo is found, and only
+    // the directories (a block each on ext4, nothing on APFS) are "other".
+    let get = |section: &str, key: &str| {
+        report[section]
+            .get(key)
             .and_then(|v| v.as_u64())
-            .unwrap_or(0),
-        0,
+            .unwrap_or(0)
+    };
+    assert!(get("by_content", "debuginfo") > 0, "{report}");
+    assert_eq!(
+        get("by_content", "other"),
+        get("by_kind", "directories"),
         "{report}"
     );
 }
