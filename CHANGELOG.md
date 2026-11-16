@@ -6,6 +6,20 @@ Notable changes to cargo-heft. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- A target directory that is a symlink is measured where it points, so the
+  total matches `du -s` on the real path. The first line shows both paths.
+  (#27)
+- A directory that cannot be read is named in the error, which says that
+  nothing was measured, instead of the bare OS error. (#24)
+
+### Added
+
+- `.a` static libraries are opened like `.rlib` archives: their debuginfo is
+  counted as debuginfo, and they are a kind of their own instead of "other".
+  (#26)
+
 ## [0.2.2] - 2026-11-16
 
 ### Fixed

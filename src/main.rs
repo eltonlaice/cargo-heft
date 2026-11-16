@@ -115,6 +115,7 @@ fn classify(rel: &Path, executable: bool, script_unit: bool) -> &'static str {
     }
     match rel.extension().and_then(|e| e.to_str()) {
         Some("rlib") => "rlib",
+        Some("a" | "lib") => "static library",
         Some("rmeta") => "rmeta",
         Some("d") => "dep-info",
         Some("o") => "object file",
@@ -251,12 +252,12 @@ fn object_parts(data: &[u8], p: &mut Parts) {
     }
 }
 
-/// Looks inside an `.rlib` (an archive of metadata and object files) or a
-/// single object file, executable or dylib.
-fn parts(data: &[u8], is_rlib: bool) -> Parts {
+/// Looks inside an archive (`.rlib`, which adds metadata to object files, or
+/// a `.a` static library) or a single object file, executable or dylib.
+fn parts(data: &[u8], is_archive: bool) -> Parts {
     let mut p = Parts::default();
     match object::read::archive::ArchiveFile::parse(data) {
-        Ok(archive) if is_rlib => {
+        Ok(archive) if is_archive => {
             for member in archive.members().flatten() {
                 let Ok(bytes) = member.data(data) else {
                     continue;
@@ -281,15 +282,20 @@ struct File {
     symlink: bool,
 }
 
+/// Puts the path in an I/O error, which otherwise names only the OS error.
+fn at(path: &Path) -> impl Fn(io::Error) -> io::Error + '_ {
+    move |e| io::Error::new(e.kind(), format!("cannot read {}: {e}", path.display()))
+}
+
 fn walk(
     root: &Path,
     dir: &Path,
     files: &mut Vec<File>,
     dirs: &mut Vec<(PathBuf, u64)>,
 ) -> io::Result<()> {
-    for entry in fs::read_dir(dir)? {
-        let path = entry?.path();
-        let md = fs::symlink_metadata(&path)?;
+    for entry in fs::read_dir(dir).map_err(at(dir))? {
+        let path = entry.map_err(at(dir))?.path();
+        let md = fs::symlink_metadata(&path).map_err(at(&path))?;
         let (bytes, id, executable) = disk_usage(&md);
         let rel = path.strip_prefix(root).unwrap_or(&path).to_path_buf();
         if md.is_dir() {
@@ -409,10 +415,15 @@ impl Report {
             }
         };
         match kind {
-            "rlib" | "object file" | "binary" | "dylib" | "build script executable" => {
+            "rlib"
+            | "static library"
+            | "object file"
+            | "binary"
+            | "dylib"
+            | "build script executable" => {
                 // ponytail: reads each file whole; mmap if huge targets get slow.
                 let data = fs::read(root.join(&f.rel)).unwrap_or_default();
-                let p = parts(&data, kind == "rlib");
+                let p = parts(&data, matches!(kind, "rlib" | "static library"));
                 // Scale logical bytes to the blocks the file occupies.
                 let scale =
                     |n: u64| (n as u128 * f.bytes as u128 / data.len().max(1) as u128) as u64;
@@ -436,7 +447,7 @@ impl Report {
 fn measure(root: &Path) -> io::Result<Report> {
     let mut r = Report::default();
     let mut files = Vec::new();
-    let (bytes, ..) = disk_usage(&fs::symlink_metadata(root)?);
+    let (bytes, ..) = disk_usage(&fs::symlink_metadata(root).map_err(at(root))?);
     // Inside a target directory, name paths from its root (see locate_in_target).
     let (base, prefix) = locate_in_target(root).unwrap_or((root.to_path_buf(), PathBuf::new()));
     let mut dirs = vec![(prefix.clone(), bytes)];
@@ -759,7 +770,12 @@ fn run() -> Result<(), String> {
             target.display()
         ));
     }
-    let r = measure(&target).map_err(|e| format!("{}: {e}", target.display()))?;
+    // A symlinked target directory is measured where it points, as `du -sL`
+    // would; `du -s` on the link counts only the link.
+    let real = target.canonicalize().unwrap_or_else(|_| target.clone());
+    let r = measure(&real).map_err(|e| {
+        format!("{e}\nNothing was measured: a total that skipped it would be too small.")
+    })?;
     if json {
         let out = serde_json::json!({
             "schema_version": SCHEMA_VERSION,
@@ -774,9 +790,13 @@ fn run() -> Result<(), String> {
         say!("{out:#}");
     } else {
         // du -h counts in units of 1024; say so before the totals look wrong.
+        let shown = match fs::symlink_metadata(&target).is_ok_and(|m| m.is_symlink()) {
+            true => format!("{} -> {}", target.display(), real.display()),
+            false => target.display().to_string(),
+        };
         say!(
             "{}: {} on disk ({:.1} MiB in the units du -h uses)",
-            target.display(),
+            shown,
             human(r.total),
             r.total as f64 / 1_048_576.0
         );
@@ -785,6 +805,7 @@ fn run() -> Result<(), String> {
         // "other" in this view is every kind that holds no compiled code.
         let compiled = [
             "rlib",
+            "static library",
             "object file",
             "binary",
             "dylib",

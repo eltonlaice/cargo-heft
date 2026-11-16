@@ -284,7 +284,18 @@ fn a_target_dir_symlink_to_a_directory_is_followed() {
         symlink(&real, &link);
         let report = report(dir.path(), &["--target-dir", link.to_str().unwrap()]);
         assert_consistent(&report);
-        assert!(report["total_bytes"].as_u64().unwrap() > 0);
+        // Measured where it points, so the total is that of `du -s real`
+        // (`du -sL link`), not the few bytes of the link itself.
+        assert_matches_du(report["total_bytes"].as_u64().unwrap(), &real);
+        let out = run_in(dir.path(), &["--target-dir", link.to_str().unwrap()]);
+        out.assert_ok();
+        let real = real.canonicalize().unwrap();
+        assert!(
+            out.stdout
+                .starts_with(&format!("{} -> {}:", link.display(), real.display())),
+            "{}",
+            out.stdout
+        );
     }
 }
 
@@ -379,11 +390,20 @@ fn unreadable_directories_are_reported_not_panicked() {
             return;
         }
         out.assert_failed();
+        // The error names the directory, not just the OS error, and says
+        // why nothing was reported.
         assert!(
-            out.stderr.contains("Permission denied") || out.stderr.contains("os error"),
+            out.stderr
+                .contains(&format!("cannot read {}", secret.display())),
             "{}",
             out.stderr
         );
+        assert!(
+            out.stderr.contains("Nothing was measured"),
+            "{}",
+            out.stderr
+        );
+        assert!(out.stdout.is_empty(), "{}", out.stdout);
     }
 }
 
