@@ -35,6 +35,7 @@ fn help_documents_every_option() {
             "--profile <NAME>",
             "--only <IDS>",
             "-V, --version",
+            "disk",
         ] {
             assert!(
                 out.stdout.contains(needle),

@@ -35,6 +35,8 @@ macOS and Linux.
 - Understands both the classic target layout and the build-dir layout of
   Cargo 1.100.
 - JSON output for scripts and CI.
+- `cargo heft disk` measures the Cargo home and the rustup home by part and
+  says what removing each part would cost.
 
 See [how it counts](docs/how-it-counts.md) for the details and the limits.
 
@@ -51,6 +53,7 @@ cargo heft              # measure the target directory
 cargo heft --top 5      # list only the five largest crates
 cargo heft --what-if    # what would each profile setting save?
 cargo heft --json       # machine-readable output
+cargo heft disk         # what Rust keeps in ~/.cargo and ~/.rustup
 ```
 
 Part of the output for ripgrep after a `dev` build:
@@ -78,6 +81,23 @@ And `--what-if` on the same project:
   incremental = false                  216.8 MB    -29.6%     5.9s
   line-tables-only, no incremental     172.1 MB    -44.1%     5.4s
 ```
+
+And `cargo heft disk` on a development machine (shortened):
+
+```
+Cargo home: ~/.cargo (4.83 GB)
+  registry/src       3.27 GB  rebuilt   cargo +nightly -Zgc clean gc
+  git/checkouts     923.7 MB  rebuilt   cargo +nightly -Zgc clean gc
+  registry/cache    477.5 MB  download  cargo +nightly -Zgc clean gc
+  bin                18.4 MB  keep
+
+rustup home: ~/.rustup (4.25 GB)
+  toolchains/stable-aarch64-apple-darwin      1.68 GB  keep
+  toolchains/1.99.1-aarch64-apple-darwin      1.43 GB  download  rustup toolchain uninstall 1.99.1-aarch64-apple-darwin
+```
+
+It removes nothing. What each part is and what removing it costs is in
+[docs/disk.md](docs/disk.md).
 
 ## Options
 

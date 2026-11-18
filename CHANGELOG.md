@@ -16,6 +16,11 @@ Notable changes to cargo-heft. The format follows
 
 ### Added
 
+- `cargo heft disk` measures the Cargo home and the rustup home by part
+  (registry index, cache and sources, git clones and checkouts, installed
+  tools, each toolchain), says what removing each part would cost, and names
+  the command that would do it. It reads only. Design in `docs/disk.md`.
+  (#46, #47, #48, #50, #52)
 - `--what-if --only <IDS>` builds only the chosen settings, such as
   `--only configured,line-tables`. The JSON output gives each scenario's
   `id`. (#25)
