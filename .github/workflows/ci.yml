@@ -38,6 +38,20 @@ jobs:
       - name: Run on its own target directory
         run: cargo run --quiet -- --top 5
 
+  layout-v2:
+    name: build-dir v2 layout (Cargo 1.100)
+    runs-on: ubuntu-latest
+    env:
+      HEFT_REQUIRE_CARGO_1_100: "1"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # Builds tests/fixture with a real Cargo 1.100 and checks that the
+      # build/<pkg>/<hash>/out and run/ units are measured correctly.
+      - run: rustup toolchain install 1.100.0 --profile minimal
+      - run: cargo test --test layouts
+
   workflows:
     name: lint workflows
     runs-on: ubuntu-latest

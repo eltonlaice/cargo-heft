@@ -24,6 +24,7 @@ cargo test
 
 CI runs the same three on Linux and macOS with stable Rust, and on Linux with
 the minimum supported Rust version (`rust-version` in `Cargo.toml`).
+A separate job runs `tests/layouts.rs` with Cargo 1.100.
 
 The tests drive the compiled binary as a black box:
 
@@ -32,6 +33,12 @@ The tests drive the compiled binary as a black box:
 - `tests/measure.rs` and `tests/property.rs` build target directories by hand,
   in both layouts, with hard links and symlinks, and check that every view
   adds up to the total and the total to `du`.
+- `tests/layouts.rs` builds the fixture with a real Cargo 1.100 and checks
+  the build-dir v2 layout. It runs when the 1.100.0 toolchain is installed
+  and skips otherwise; the `layout-v2` CI job installs it, so there it cannot
+  skip.
+- `tests/disk.rs` lays out Cargo and rustup homes by hand and checks
+  `cargo heft disk`.
 - `tests/cli.rs` pins the command line: flags, errors and exit codes.
 - Unit tests in `src/main.rs` pin how single paths are classified.
 
