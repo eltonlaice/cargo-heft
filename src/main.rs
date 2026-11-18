@@ -1,4 +1,5 @@
-//! cargo-heft: find out what takes up space in a Cargo target directory.
+//! cargo-heft: find out what takes up space in a Cargo target directory,
+//! and with `cargo heft disk`, in the Cargo and rustup homes.
 //!
 //! Sizes are on-disk (allocated blocks), every inode is counted once, and
 //! directories are included, so the total matches `du -s`.

@@ -1,7 +1,8 @@
 # Contributing
 
 Thanks for looking. This is a small tool with one job: say where the bytes
-of a Cargo target directory go, in numbers that can be checked.
+Rust keeps on disk go, starting with a Cargo target directory, in numbers that
+can be checked.
 
 ## How changes get in
 

@@ -5,7 +5,8 @@
 [![Rust](https://img.shields.io/badge/rust-1.88%2B-blue.svg)](https://github.com/eltonlaice/cargo-heft)
 
 cargo-heft tells you what takes up space in a Cargo `target/` directory, and
-how much each profile setting would save.
+how much each profile setting would save. `cargo heft disk` does the same for
+what Rust keeps in your Cargo home and rustup home.
 
 A `target/` directory easily grows to several gigabytes. Disk usage is the
 second most common complaint about the Rust toolchain in the
@@ -13,7 +14,8 @@ second most common complaint about the Rust toolchain in the
 `du` gives you one number. cargo-heft splits it by kind of file, by crate,
 and by what is inside the files: debuginfo, metadata and code.
 
-It only reads: nothing in your `target/` is changed or deleted. It runs on
+It only reads: nothing in your `target/`, Cargo home or rustup home is changed
+or deleted. It runs on
 macOS and Linux.
 
 [2025 State of Rust survey]: https://blog.rust-lang.org/2026/03/02/2025-State-Of-Rust-Survey-results/
@@ -112,6 +114,9 @@ It removes nothing. What each part is and what removing it costs is in
   `no-debug`, `no-incremental` and `line-tables-no-incremental`.
 - `-- <args>`: extra arguments for `cargo build` in `--what-if`, such as
   `-p my-crate`.
+- `disk`: measure the Cargo home (`CARGO_HOME`, default `~/.cargo`) and the
+  rustup home (`RUSTUP_HOME`, default `~/.rustup`) instead of a target
+  directory. It takes no options yet.
 
 ## Results
 

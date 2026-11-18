@@ -12,7 +12,9 @@ the first line shows both paths. Compare with `du -sL link` or `du -s` on the
 real path: `du -s link` counts only the link.
 
 A directory that cannot be read stops the measurement with its path, rather
-than giving a total that would be too small.
+than giving a total that would be too small. `cargo heft disk` is the
+exception: a home directory is not the tool's to fail on, so it names what it
+could not read and measures the rest (see [disk.md](disk.md)).
 
 ## Hard links
 
