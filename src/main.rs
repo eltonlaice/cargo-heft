@@ -1,11 +1,11 @@
-//! cargo-heft: find out what takes up space in a Cargo target directory.
+//! cargo-heft: find out what takes up space in a Cargo target directory,
+//! and with `cargo heft disk`, in the Cargo and rustup homes.
 //!
 //! Sizes are on-disk (allocated blocks), every inode is counted once, and
 //! directories are included, so the total matches `du -s`.
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::ffi::OsString;
-use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode};
 use std::{env, fs, io};
@@ -14,8 +14,8 @@ use std::{env, fs, io};
 /// closes the pipe early, and that is a normal way to end, not a panic.
 macro_rules! say {
     ($($arg:tt)*) => {
-        if let Err(e) = writeln!(io::stdout(), $($arg)*) {
-            if e.kind() != io::ErrorKind::BrokenPipe {
+        if let Err(e) = ::std::io::Write::write_fmt(&mut ::std::io::stdout(), format_args!("{}\n", format_args!($($arg)*))) {
+            if e.kind() != ::std::io::ErrorKind::BrokenPipe {
                 eprintln!("cargo-heft: cannot write to stdout: {e}");
                 std::process::exit(1);
             }
@@ -23,6 +23,8 @@ macro_rules! say {
         }
     };
 }
+
+mod disk;
 
 /// Version of the `--json` output, in both modes. Raise it when a key is
 /// removed or renamed, or a value changes meaning; adding a key does not
@@ -32,6 +34,7 @@ const SCHEMA_VERSION: u32 = 1;
 const USAGE: &str = "\
 Usage: cargo heft [--target-dir <DIR>] [--top <N>] [--json]
        cargo heft --what-if [--profile <NAME>] [--only <IDS>] [--json] [-- <cargo build args>]
+       cargo heft disk
 
   --target-dir <DIR>  directory to measure (default: the workspace's target dir)
   --top <N>           crates to list (default 15)
@@ -42,6 +45,8 @@ Usage: cargo heft [--target-dir <DIR>] [--top <N>] [--json]
   --only <IDS>        settings --what-if builds, comma-separated (default: all):
                       configured, line-tables, no-debug, no-incremental,
                       line-tables-no-incremental
+  disk                the Cargo home and the rustup home by part, and what
+                      removing each part would cost (reads only)
   -V, --version       print the version";
 
 const EXAMPLES: &str = "\
@@ -50,7 +55,8 @@ Examples:
   cargo heft --target-dir target/debug --top 5
   cargo heft --json | jq .total_bytes
   cargo heft --what-if -- -p my-crate what each profile setting would save
-  cargo heft --what-if --only configured,line-tables";
+  cargo heft --what-if --only configured,line-tables
+  cargo heft disk                     what Rust keeps in ~/.cargo and ~/.rustup";
 
 /// Profile settings `--what-if` tries: the id `--only` takes, the name shown,
 /// and (key, value) pairs of `[profile.*]`.
@@ -744,6 +750,10 @@ fn run() -> Result<(), String> {
     let mut args = env::args_os().skip(1).peekable();
     if args.peek().is_some_and(|a| a == "heft") {
         args.next(); // invoked as `cargo heft`
+    }
+    if args.peek().is_some_and(|a| a == "disk") {
+        args.next();
+        return disk::run(args);
     }
     let (mut target, mut top, mut json) = (None, None, false);
     let (mut whatif, mut profile, mut extra, mut only) = (false, None, None, None);
