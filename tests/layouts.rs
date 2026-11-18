@@ -130,15 +130,20 @@ fn measures_a_cargo_1_100_build_dir_v2_layout() {
     assert!(total > 0);
 
     let kinds = report["by_kind"].as_object().unwrap();
-    for kind in [
+    let mut expected = vec![
         "rlib",
         "rmeta",
-        "object file",
         "fingerprint",
         "build script executable",
         "build script output",
         "binary",
-    ] {
+    ];
+    // Loose .o files stay next to the artifacts only on macOS, where
+    // dsymutil reads them; on Linux they live inside the .rlib and incremental/.
+    if cfg!(target_os = "macos") {
+        expected.push("object file");
+    }
+    for kind in expected {
         assert!(
             kinds.get(kind).is_some_and(|b| b.as_u64().unwrap() > 0),
             "{kind} missing from a v2 build: {kinds:?}"
