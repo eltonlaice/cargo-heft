@@ -27,7 +27,7 @@ the rest is still measured.
 | `git/checkouts` | checkouts of those clones | checked out again from `git/db`, no network | `cargo clean gc` |
 | `bin` | tools installed with `cargo install` | the tools | never recommended |
 | `toolchains/<name>` | one rustup toolchain | downloaded again by rustup | `rustup toolchain uninstall <name>` |
-| the default toolchain | what `rustup default` names | every build without an override | never recommended |
+| a toolchain in use | the default, a `rustup override`, `RUSTUP_TOOLCHAIN`, or the `rust-toolchain.toml` / `rust-toolchain` of the current directory or one above it | builds that use it | never recommended |
 | other | settings, credentials, lock files, anything not listed above | unknown | never recommended |
 
 The report marks each part `rebuilt` (no network needed), `download` (the next
@@ -38,10 +38,15 @@ Rust 1.88, Cargo also removes cache files it has not used for a while on its
 own. Removing a toolchain is rustup's job; cargo-heft names the command and
 never suggests `rm`.
 
+A toolchain in use shows why, such as `(in use: default)` or
+`(in use: pinned by /work/app/rust-toolchain.toml)`. Run through Cargo,
+`cargo heft disk` sees `RUSTUP_TOOLCHAIN` set to the toolchain running it, so
+that one is always kept. Only the current directory and those above it are
+searched for `rust-toolchain.toml`: a project elsewhere that pins an old
+toolchain is not seen, so check before uninstalling one.
+
 ## Not yet
 
-- Toolchains pinned by a project's `rust-toolchain.toml` are not detected.
-  Until they are, check before uninstalling one.
 - Target directories of other projects (`--projects`, #49).
 - JSON output (#51).
 - Third-party caches (sccache, IDE caches), and Windows.

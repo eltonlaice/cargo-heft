@@ -34,7 +34,8 @@ pub struct Part {
     pub name: String,
     pub bytes: u64,
     pub class: Class,
-    /// The command that removes it, run by the user. None for `Keep`.
+    /// The command that removes it, run by the user; for `Keep`, why it is
+    /// kept when that is worth saying, such as "(in use: default)".
     pub command: Option<String>,
 }
 
@@ -150,13 +151,68 @@ fn home_dir(var: &str, default: &str) -> Result<PathBuf, String> {
     }
 }
 
-/// The toolchain `rustup default` names, read from `settings.toml`.
-fn default_toolchain(rustup: &Path) -> Option<String> {
-    let text = fs::read_to_string(rustup.join("settings.toml")).ok()?;
-    text.lines().find_map(|l| {
-        let v = l.trim().strip_prefix("default_toolchain")?.trim_start();
-        Some(v.strip_prefix('=')?.trim().trim_matches('"').to_string())
-    })
+/// `"value"` out of a `key = "value"` line.
+fn quoted_value(line: &str, key: &str) -> Option<String> {
+    let v = line.trim().strip_prefix(key)?.trim_start();
+    Some(v.strip_prefix('=')?.trim().trim_matches('"').to_string())
+}
+
+/// Toolchains rustup would pick here, each with why: the default, an
+/// override set with `rustup override`, `RUSTUP_TOOLCHAIN`, or a
+/// `rust-toolchain(.toml)` in `cwd` or above it. The names are as written
+/// (`stable`, `1.88.0`), not the directory names with the host triple.
+pub fn toolchains_in_use(rustup: &Path, cwd: &Path) -> Vec<(String, String)> {
+    let mut used = Vec::new();
+    let settings = fs::read_to_string(rustup.join("settings.toml")).unwrap_or_default();
+    let mut in_overrides = false;
+    for line in settings.lines() {
+        let line = line.trim();
+        if line.starts_with('[') {
+            in_overrides = line == "[overrides]";
+        } else if in_overrides {
+            if let Some((path, tc)) = line.split_once('=') {
+                let (path, tc) = (path.trim().trim_matches('"'), tc.trim().trim_matches('"'));
+                used.push((tc.to_string(), format!("override for {path}")));
+            }
+        } else if let Some(tc) = quoted_value(line, "default_toolchain") {
+            used.push((tc, "default".to_string()));
+        }
+    }
+    if let Some(tc) = env::var_os("RUSTUP_TOOLCHAIN").filter(|t| !t.is_empty()) {
+        used.push((
+            tc.to_string_lossy().into_owned(),
+            "RUSTUP_TOOLCHAIN".to_string(),
+        ));
+    }
+    for dir in cwd.ancestors() {
+        for name in ["rust-toolchain.toml", "rust-toolchain"] {
+            let Ok(text) = fs::read_to_string(dir.join(name)) else {
+                continue;
+            };
+            let tc = text
+                .lines()
+                .find_map(|l| quoted_value(l, "channel"))
+                .or_else(|| {
+                    // The old format: the file holds only the toolchain name.
+                    let first = text.lines().map(str::trim).find(|l| !l.is_empty())?;
+                    (!first.contains(['=', '['])).then(|| first.to_string())
+                });
+            if let Some(tc) = tc {
+                used.push((tc, format!("pinned by {}", dir.join(name).display())));
+            }
+        }
+    }
+    used
+}
+
+/// Whether the toolchain directory `dir` (`stable-aarch64-apple-darwin`) is
+/// the toolchain `name` (`stable`) names. Errs towards a match: a false match
+/// only keeps a toolchain the report would otherwise offer to uninstall.
+fn is_toolchain(dir: &str, name: &str) -> bool {
+    dir == name
+        || dir
+            .strip_prefix(name)
+            .is_some_and(|rest| rest.starts_with('-'))
 }
 
 pub fn inventory(cargo_home: PathBuf, rustup_home: PathBuf) -> (Vec<Home>, Vec<PathBuf>) {
@@ -178,7 +234,8 @@ pub fn inventory(cargo_home: PathBuf, rustup_home: PathBuf) -> (Vec<Home>, Vec<P
             (class, (class != Class::Keep).then(|| GC.to_string()))
         },
     );
-    let default = default_toolchain(&rustup_home);
+    let cwd = env::current_dir().unwrap_or_default();
+    let used = toolchains_in_use(&rustup_home, &cwd);
     let rustup = measure(
         "rustup home",
         rustup_home,
@@ -193,12 +250,17 @@ pub fn inventory(cargo_home: PathBuf, rustup_home: PathBuf) -> (Vec<Home>, Vec<P
         },
         |name| {
             let t = name.trim_start_matches("toolchains/");
-            match default.as_deref() == Some(t) {
-                true => (Class::Keep, None),
-                false => (
+            let why: Vec<&str> = used
+                .iter()
+                .filter(|(tc, _)| is_toolchain(t, tc))
+                .map(|(_, why)| why.as_str())
+                .collect();
+            match why.is_empty() {
+                true => (
                     Class::Download,
                     Some(format!("rustup toolchain uninstall {t}")),
                 ),
+                false => (Class::Keep, Some(format!("(in use: {})", why.join(", ")))),
             }
         },
     );
@@ -233,7 +295,13 @@ pub fn run(mut args: impl Iterator<Item = OsString>) -> Result<(), String> {
             continue;
         }
         grand += h.total;
-        say!("{}: {} ({})", h.title, h.path.display(), human(h.total));
+        say!(
+            "{}: {} ({}, {:.1} MiB in the units du -h uses)",
+            h.title,
+            h.path.display(),
+            human(h.total),
+            h.total as f64 / 1_048_576.0
+        );
         let w = h.parts.iter().map(|p| p.name.len()).max().unwrap_or(0);
         for p in &h.parts {
             let cmd = p.command.as_deref().unwrap_or("");
@@ -251,7 +319,8 @@ pub fn run(mut args: impl Iterator<Item = OsString>) -> Result<(), String> {
     say!(
         "\n  rebuilt   recreated from another cache on this machine, no network\n  \
          download  fetched again: the next build needs the network, offline builds fail\n  \
-         keep      installed tools, settings, credentials, the default toolchain,\n            \
+         keep      installed tools, settings, credentials, a toolchain in use here\n            \
+         (default, override, RUSTUP_TOOLCHAIN or rust-toolchain.toml),\n            \
          or files cargo-heft does not recognise\n\n\
          Nothing was removed. `cargo clean gc` is nightly-only for now; Cargo also\n\
          cleans these caches by itself."

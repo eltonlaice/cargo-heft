@@ -34,13 +34,20 @@ fn homes(root: &Path) -> (std::path::PathBuf, std::path::PathBuf) {
 }
 
 fn disk(cargo: &Path, rustup: &Path) -> Outcome {
+    disk_in(&repo(), cargo, rustup, &[])
+}
+
+/// `cargo heft disk` in `dir`. The rustup proxy sets RUSTUP_TOOLCHAIN for the
+/// tests themselves, so it is removed unless the test sets it.
+fn disk_in(dir: &Path, cargo: &Path, rustup: &Path, envs: &[(&str, &str)]) -> Outcome {
     let (c, r) = (cargo.to_str().unwrap(), rustup.to_str().unwrap());
-    run_with(
-        &repo(),
-        &["disk"],
-        &[("CARGO_HOME", c), ("RUSTUP_HOME", r)],
-        &[],
-    )
+    let mut all = vec![("CARGO_HOME", c), ("RUSTUP_HOME", r)];
+    all.extend_from_slice(envs);
+    let remove: &[&str] = match envs.iter().any(|(k, _)| *k == "RUSTUP_TOOLCHAIN") {
+        true => &[],
+        false => &["RUSTUP_TOOLCHAIN"],
+    };
+    run_with(dir, &["disk"], &all, remove)
 }
 
 /// The tool's own rounding: decimal units, as in the report.
@@ -102,7 +109,7 @@ fn each_part_is_classified_with_the_command_that_removes_it() {
     assert_eq!(row(&out.stdout, "other"), ["keep"]);
     assert_eq!(
         row(&out.stdout, "toolchains/stable-x"),
-        ["keep"],
+        ["keep", "(in", "use:", "default)"],
         "the default toolchain"
     );
     assert_eq!(
@@ -124,8 +131,8 @@ fn the_total_of_each_home_matches_du() {
     out.assert_ok();
     for (title, path) in [("Cargo home", &cargo), ("rustup home", &rustup)] {
         let line = out.stdout.lines().find(|l| l.starts_with(title)).unwrap();
-        let want = format!("({})", human_bytes(du_bytes(path)));
-        assert!(line.ends_with(&want), "{line} vs du {want}");
+        let want = format!("({}, ", human_bytes(du_bytes(path)));
+        assert!(line.contains(&want), "{line} vs du {want}");
     }
 }
 
@@ -222,4 +229,70 @@ fn unsafe_running_as_root() -> bool {
         .arg("-u")
         .output()
         .is_ok_and(|o| o.stdout.starts_with(b"0"))
+}
+
+/// The row of the older toolchain when something may be using it.
+fn old_toolchain_row(dir: &Path, rustup_extra: &str, envs: &[(&str, &str)]) -> String {
+    let t = TempDir::new("disk-in-use");
+    let (cargo, rustup) = homes(t.path());
+    if !rustup_extra.is_empty() {
+        let settings = rustup.join("settings.toml");
+        let text = fs::read_to_string(&settings).unwrap() + rustup_extra;
+        fs::write(settings, text).unwrap();
+    }
+    let out = disk_in(dir, &cargo, &rustup, envs);
+    out.assert_ok();
+    row(&out.stdout, "toolchains/1.80.0-x").join(" ")
+}
+
+#[test]
+fn a_toolchain_nothing_uses_is_offered_for_uninstall() {
+    let t = TempDir::new("disk-unused");
+    assert_eq!(
+        old_toolchain_row(t.path(), "", &[]),
+        "download rustup toolchain uninstall 1.80.0-x"
+    );
+}
+
+#[test]
+fn a_toolchain_pinned_here_or_above_is_kept() {
+    let t = TempDir::new("disk-pinned");
+    let project = t.join("project/src");
+    fs::create_dir_all(&project).unwrap();
+    fs::write(
+        t.join("project/rust-toolchain.toml"),
+        "[toolchain]\nchannel = \"1.80.0\"\n",
+    )
+    .unwrap();
+    let r = old_toolchain_row(&project, "", &[]);
+    assert!(r.starts_with("keep (in use: pinned by "), "{r}");
+    assert!(r.ends_with("rust-toolchain.toml)"), "{r}");
+
+    // The old format: only the toolchain name.
+    let legacy = TempDir::new("disk-pinned-legacy");
+    fs::write(legacy.join("rust-toolchain"), "1.80.0\n").unwrap();
+    let r = old_toolchain_row(legacy.path(), "", &[]);
+    assert!(r.starts_with("keep (in use: pinned by "), "{r}");
+}
+
+#[test]
+fn a_rustup_override_is_kept() {
+    let t = TempDir::new("disk-override");
+    let r = old_toolchain_row(t.path(), "\n[overrides]\n\"/work/old\" = \"1.80.0\"\n", &[]);
+    assert_eq!(r, "keep (in use: override for /work/old)");
+}
+
+#[test]
+fn the_toolchain_in_rustup_toolchain_is_kept() {
+    let t = TempDir::new("disk-env");
+    let r = old_toolchain_row(t.path(), "", &[("RUSTUP_TOOLCHAIN", "1.80.0")]);
+    assert_eq!(r, "keep (in use: RUSTUP_TOOLCHAIN)");
+}
+
+#[test]
+fn a_name_is_not_matched_by_a_longer_version() {
+    // 1.8 must not keep 1.80.0: the name has to end where the triple starts.
+    let t = TempDir::new("disk-prefix");
+    let r = old_toolchain_row(t.path(), "", &[("RUSTUP_TOOLCHAIN", "1.8")]);
+    assert!(r.starts_with("download"), "{r}");
 }

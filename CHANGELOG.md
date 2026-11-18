@@ -6,6 +6,15 @@ Notable changes to cargo-heft. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- `cargo heft disk` keeps a toolchain that is in use here and says why: the
+  default, a `rustup override`, `RUSTUP_TOOLCHAIN`, or a `rust-toolchain.toml`
+  in the current directory or above it. Before, only the default was kept and
+  every other toolchain was offered for uninstall.
+- `cargo heft disk` also gives each home's size in MiB, the units `du -h`
+  uses.
+
 ## [0.3.0] - 2026-11-18
 
 ### Fixed
