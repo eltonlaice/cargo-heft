@@ -36,7 +36,7 @@ macOS and Linux.
   much each one would save.
 - Understands both the classic target layout and the build-dir layout of
   Cargo 1.100.
-- JSON output for scripts and CI.
+- JSON output for scripts and CI (not yet for `cargo heft disk`).
 - `cargo heft disk` measures the Cargo home and the rustup home by part and
   says what removing each part would cost.
 
@@ -87,14 +87,14 @@ And `--what-if` on the same project:
 And `cargo heft disk` on a development machine (shortened):
 
 ```
-Cargo home: ~/.cargo (4.83 GB)
+Cargo home: ~/.cargo (4.83 GB, 4609.2 MiB in the units du -h uses)
   registry/src       3.27 GB  rebuilt   cargo +nightly -Zgc clean gc
   git/checkouts     923.7 MB  rebuilt   cargo +nightly -Zgc clean gc
   registry/cache    477.5 MB  download  cargo +nightly -Zgc clean gc
   bin                18.4 MB  keep
 
-rustup home: ~/.rustup (4.25 GB)
-  toolchains/stable-aarch64-apple-darwin      1.68 GB  keep
+rustup home: ~/.rustup (4.25 GB, 4057.1 MiB in the units du -h uses)
+  toolchains/stable-aarch64-apple-darwin      1.68 GB  keep      (in use: default)
   toolchains/1.99.1-aarch64-apple-darwin      1.43 GB  download  rustup toolchain uninstall 1.99.1-aarch64-apple-darwin
 ```
 
