@@ -206,13 +206,16 @@ pub fn toolchains_in_use(rustup: &Path, cwd: &Path) -> Vec<(String, String)> {
 }
 
 /// Whether the toolchain directory `dir` (`stable-aarch64-apple-darwin`) is
-/// the toolchain `name` (`stable`) names. Errs towards a match: a false match
-/// only keeps a toolchain the report would otherwise offer to uninstall.
+/// the toolchain `name` (`stable`) names: the name, then `-` and the host
+/// triple, which starts with a letter. A date starts with a digit, so
+/// `nightly` does not name `nightly-2026-11-01-aarch64-apple-darwin`, and
+/// `1.8` does not name `1.80.0-...`.
 fn is_toolchain(dir: &str, name: &str) -> bool {
     dir == name
         || dir
             .strip_prefix(name)
-            .is_some_and(|rest| rest.starts_with('-'))
+            .and_then(|rest| rest.strip_prefix('-'))
+            .is_some_and(|triple| triple.starts_with(|c: char| c.is_ascii_alphabetic()))
 }
 
 pub fn inventory(cargo_home: PathBuf, rustup_home: PathBuf) -> (Vec<Home>, Vec<PathBuf>) {

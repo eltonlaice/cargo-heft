@@ -11,7 +11,8 @@ Notable changes to cargo-heft. The format follows
 - `cargo heft disk` keeps a toolchain that is in use here and says why: the
   default, a `rustup override`, `RUSTUP_TOOLCHAIN`, or a `rust-toolchain.toml`
   in the current directory or above it. Before, only the default was kept and
-  every other toolchain was offered for uninstall.
+  every other toolchain was offered for uninstall. A channel name such as `nightly` keeps
+  that toolchain only, not the dated ones (`nightly-2026-11-01`).
 - `cargo heft disk` also gives each home's size in MiB, the units `du -h`
   uses.
 

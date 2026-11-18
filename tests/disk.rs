@@ -296,3 +296,28 @@ fn a_name_is_not_matched_by_a_longer_version() {
     let r = old_toolchain_row(t.path(), "", &[("RUSTUP_TOOLCHAIN", "1.8")]);
     assert!(r.starts_with("download"), "{r}");
 }
+
+#[test]
+fn a_channel_name_does_not_keep_dated_toolchains() {
+    // `channel = "nightly"` means today's nightly, not every dated one: the
+    // dated ones are what someone running this wants to find.
+    let t = TempDir::new("disk-dated");
+    let (cargo, rustup) = homes(t.path());
+    file(&rustup.join("toolchains/nightly-x/lib/libstd.rlib"), 10_000);
+    file(
+        &rustup.join("toolchains/nightly-2026-11-01-x/lib/libstd.rlib"),
+        10_000,
+    );
+    fs::write(t.join("rust-toolchain"), "nightly\n").unwrap();
+    let out = disk_in(t.path(), &cargo, &rustup, &[]);
+    out.assert_ok();
+    assert!(
+        row(&out.stdout, "toolchains/nightly-x")[0] == "keep",
+        "{}",
+        out.stdout
+    );
+    assert_eq!(
+        row(&out.stdout, "toolchains/nightly-2026-11-01-x").join(" "),
+        "download rustup toolchain uninstall nightly-2026-11-01-x"
+    );
+}
