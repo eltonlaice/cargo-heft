@@ -13,6 +13,8 @@ Notable changes to cargo-heft. The format follows
   in the current directory or above it. Before, only the default was kept and
   every other toolchain was offered for uninstall. A channel name such as `nightly` keeps
   that toolchain only, not the dated ones (`nightly-2026-11-01`).
+- `cargo heft disk` shows how far it has got while it measures a large home,
+  on stderr and only when stderr is a terminal.
 - `cargo heft disk` also gives each home's size in MiB, the units `du -h`
   uses.
 

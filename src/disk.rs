@@ -3,7 +3,9 @@
 
 use std::collections::{BTreeMap, HashSet};
 use std::ffi::OsString;
+use std::io::{self, IsTerminal};
 use std::path::{Path, PathBuf};
+use std::time::{Duration, Instant};
 use std::{env, fs};
 
 use crate::{disk_usage, human};
@@ -111,11 +113,22 @@ fn measure(
                 *sizes.entry("other".into()).or_default() += bytes;
             }
         }
+        // A large home takes a while; on a terminal, show that it is moving.
+        let progress = io::stderr().is_terminal();
+        let (mut entries, mut shown) = (0u64, Instant::now());
         du(&path, &path, seen, unreadable, &mut |rel, bytes| {
             total += bytes;
             let name = name_of(rel).unwrap_or_else(|| "other".into());
             *sizes.entry(name).or_default() += bytes;
+            entries += 1;
+            if progress && entries % 1024 == 0 && shown.elapsed() > Duration::from_millis(200) {
+                eprint!("\rmeasuring {}: {}\x1b[K", path.display(), human(total));
+                shown = Instant::now();
+            }
         });
+        if progress {
+            eprint!("\r\x1b[K");
+        }
     }
     let mut parts: Vec<Part> = sizes
         .into_iter()
