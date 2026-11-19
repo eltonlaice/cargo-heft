@@ -117,6 +117,8 @@ fn each_part_is_classified_with_the_command_that_removes_it() {
         ["download", "rustup", "toolchain", "uninstall", "1.80.0-x"]
     );
     assert!(out.stdout.contains("Nothing was removed"));
+    // Progress goes to a terminal only: piped, stderr stays empty.
+    assert!(out.stderr.is_empty(), "{}", out.stderr);
     assert!(
         cargo.join("registry/src/a/lib.rs").exists() && rustup.join("toolchains/1.80.0-x").exists()
     );
