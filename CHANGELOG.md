@@ -6,6 +6,8 @@ Notable changes to cargo-heft. The format follows
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-11-19
+
 ### Changed
 
 - `cargo heft disk` keeps a toolchain that is in use here and says why: the
@@ -136,7 +138,8 @@ First release.
 - Support for the classic target layout and the build-dir v2 layout of
   Cargo 1.100.
 
-[Unreleased]: https://github.com/eltonlaice/cargo-heft/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/eltonlaice/cargo-heft/compare/v0.3.1...HEAD
+[0.3.1]: https://github.com/eltonlaice/cargo-heft/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/eltonlaice/cargo-heft/compare/v0.2.2...v0.3.0
 [0.2.2]: https://github.com/eltonlaice/cargo-heft/compare/v0.2.1...v0.2.2
 [0.2.1]: https://github.com/eltonlaice/cargo-heft/compare/v0.2.0...v0.2.1
