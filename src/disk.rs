@@ -283,27 +283,79 @@ pub fn inventory(cargo_home: PathBuf, rustup_home: PathBuf) -> (Vec<Home>, Vec<P
     (vec![cargo, rustup], unreadable)
 }
 
-pub fn run(mut args: impl Iterator<Item = OsString>) -> Result<(), String> {
-    const USAGE: &str = "Usage: cargo heft disk\n\n  \
+/// Version of `cargo heft disk --json`, separate from the target report's:
+/// raised when a key is removed or renamed or a value changes meaning.
+const DISK_SCHEMA_VERSION: u32 = 1;
+
+fn json_report(homes: &[Home], unreadable: &[PathBuf]) -> serde_json::Value {
+    let homes: Vec<_> = homes
+        .iter()
+        .map(|h| {
+            let parts: Vec<_> = h
+                .parts
+                .iter()
+                .map(|p| {
+                    // For `keep`, `command` carries why it is kept, in brackets.
+                    let why = (p.class == Class::Keep)
+                        .then_some(p.command.as_deref())
+                        .flatten()
+                        .map(|c| c.trim_start_matches("(in use: ").trim_end_matches(')'));
+                    serde_json::json!({
+                        "name": p.name,
+                        "bytes": p.bytes,
+                        "class": p.class.label(),
+                        "command": if p.class == Class::Keep { None } else { p.command.clone() },
+                        "kept_because": why,
+                    })
+                })
+                .collect();
+            serde_json::json!({
+                "name": if h.title == "Cargo home" { "cargo" } else { "rustup" },
+                "path": h.path.to_string_lossy(),
+                "found": h.found,
+                "total_bytes": h.total,
+                "parts": parts,
+            })
+        })
+        .collect();
+    serde_json::json!({
+        "schema_version": DISK_SCHEMA_VERSION,
+        "total_bytes": homes.iter().map(|h| h["total_bytes"].as_u64().unwrap_or(0)).sum::<u64>(),
+        "homes": homes,
+        "unreadable": unreadable.iter().map(|p| p.to_string_lossy()).collect::<Vec<_>>(),
+    })
+}
+
+pub fn run(args: impl Iterator<Item = OsString>) -> Result<(), String> {
+    const USAGE: &str = "Usage: cargo heft disk [--json]\n\n  \
         Measures the Cargo home (CARGO_HOME, default ~/.cargo) and the rustup\n  \
         home (RUSTUP_HOME, default ~/.rustup) by part, and says what removing\n  \
-        each part would cost. It reads only; nothing is removed.";
-    if let Some(a) = args.next() {
-        return match a.to_str() {
+        each part would cost. It reads only; nothing is removed.\n\n  \
+        --json  machine-readable output (schema in docs/disk.md)";
+    let mut json = false;
+    for a in args {
+        match a.to_str() {
             Some("-h" | "--help") => {
                 say!("{USAGE}");
-                Ok(())
+                return Ok(());
             }
-            _ => Err(format!(
-                "unknown argument `{}` for `cargo heft disk`\n{USAGE}",
-                a.to_string_lossy()
-            )),
-        };
+            Some("--json") => json = true,
+            _ => {
+                return Err(format!(
+                    "unknown argument `{}` for `cargo heft disk`\n{USAGE}",
+                    a.to_string_lossy()
+                ));
+            }
+        }
     }
     let (homes, unreadable) = inventory(
         home_dir("CARGO_HOME", ".cargo")?,
         home_dir("RUSTUP_HOME", ".rustup")?,
     );
+    if json {
+        say!("{:#}", json_report(&homes, &unreadable));
+        return Ok(());
+    }
     let mut grand = 0;
     for h in &homes {
         if !h.found {

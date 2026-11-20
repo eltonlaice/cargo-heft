@@ -36,7 +36,8 @@ macOS and Linux.
   much each one would save.
 - Understands both the classic target layout and the build-dir layout of
   Cargo 1.100.
-- JSON output for scripts and CI (not yet for `cargo heft disk`).
+- JSON output for scripts and CI, for both the target report and
+  `cargo heft disk`.
 - `cargo heft disk` measures the Cargo home and the rustup home by part and
   says what removing each part would cost.
 
@@ -116,7 +117,8 @@ It removes nothing. What each part is and what removing it costs is in
   `-p my-crate`.
 - `disk`: measure the Cargo home (`CARGO_HOME`, default `~/.cargo`) and the
   rustup home (`RUSTUP_HOME`, default `~/.rustup`) instead of a target
-  directory. It takes no options yet.
+  directory. With `--json`, machine-readable output (schema in
+  [docs/disk.md](docs/disk.md)).
 
 ## Results
 

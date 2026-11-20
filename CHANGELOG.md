@@ -6,6 +6,11 @@ Notable changes to cargo-heft. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- `cargo heft disk --json`, with its own `schema_version`, documented in
+  `docs/disk.md`. (#51)
+
 ## [0.3.1] - 2026-11-19
 
 ### Changed
