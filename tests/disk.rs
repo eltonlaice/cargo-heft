@@ -215,15 +215,72 @@ fn an_unknown_layout_is_measured_and_nothing_recommended() {
 }
 
 #[test]
-fn disk_takes_no_arguments() {
-    let out = run(&["disk", "--json"]);
+fn disk_rejects_an_unknown_argument() {
+    let out = run(&["disk", "--top", "3"]);
     out.assert_failed();
     assert!(
         out.stderr
-            .contains("unknown argument `--json` for `cargo heft disk`"),
+            .contains("unknown argument `--top` for `cargo heft disk`"),
         "{}",
         out.stderr
     );
+}
+
+#[test]
+fn disk_json_has_the_same_numbers_and_says_why_a_part_is_kept() {
+    let t = TempDir::new("disk-json");
+    let (cargo, rustup) = homes(t.path());
+    let (c, r) = (cargo.to_str().unwrap(), rustup.to_str().unwrap());
+    let out = run_with(
+        &repo(),
+        &["disk", "--json"],
+        &[("CARGO_HOME", c), ("RUSTUP_HOME", r)],
+        &["RUSTUP_TOOLCHAIN"],
+    );
+    let v = out.json();
+    assert_eq!(v["schema_version"], 1);
+    let homes = v["homes"].as_array().unwrap();
+    assert_eq!(homes[0]["name"], "cargo");
+    assert_eq!(homes[1]["name"], "rustup");
+    let sum: u64 = homes
+        .iter()
+        .map(|h| h["total_bytes"].as_u64().unwrap())
+        .sum();
+    assert_eq!(v["total_bytes"].as_u64().unwrap(), sum);
+    for h in homes {
+        let parts: u64 = h["parts"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|p| p["bytes"].as_u64().unwrap())
+            .sum();
+        assert_eq!(parts, h["total_bytes"].as_u64().unwrap(), "{h}");
+        assert_eq!(
+            h["total_bytes"].as_u64().unwrap(),
+            du_bytes(Path::new(h["path"].as_str().unwrap()))
+        );
+    }
+    let part = |home: usize, name: &str| {
+        homes[home]["parts"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|p| p["name"] == name)
+            .unwrap()
+            .clone()
+    };
+    let src = part(0, "registry/src");
+    assert_eq!(src["class"], "rebuilt");
+    assert_eq!(src["command"], "cargo +nightly -Zgc clean gc");
+    let stable = part(1, "toolchains/stable-x");
+    assert_eq!(stable["class"], "keep");
+    assert!(stable["command"].is_null());
+    assert_eq!(stable["kept_because"], "default");
+    assert_eq!(
+        part(1, "toolchains/1.80.0-x")["command"],
+        "rustup toolchain uninstall 1.80.0-x"
+    );
+    assert!(v["unreadable"].as_array().unwrap().is_empty());
 }
 
 fn unsafe_running_as_root() -> bool {

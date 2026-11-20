@@ -45,8 +45,43 @@ that one is always kept. Only the current directory and those above it are
 searched for `rust-toolchain.toml`: a project elsewhere that pins an old
 toolchain is not seen, so check before uninstalling one.
 
+## JSON
+
+`cargo heft disk --json` prints one object. It has its own `schema_version`,
+which goes up only when a key is removed or renamed, or a value changes
+meaning; adding a key does not change it.
+
+```json
+{
+  "schema_version": 1,
+  "total_bytes": 9087000000,
+  "homes": [
+    {
+      "name": "cargo",
+      "path": "/home/me/.cargo",
+      "found": true,
+      "total_bytes": 4830000000,
+      "parts": [
+        {"name": "registry/src", "bytes": 3270000000, "class": "rebuilt",
+         "command": "cargo +nightly -Zgc clean gc", "kept_because": null}
+      ]
+    },
+    {"name": "rustup", "...": "..."}
+  ],
+  "unreadable": []
+}
+```
+
+- `homes` is always `cargo` then `rustup`. A home that does not exist has
+  `found: false`, `total_bytes: 0` and no parts.
+- `class` is `rebuilt`, `download` or `keep`.
+- `command` is the command that removes the part, or `null` for `keep`.
+- `kept_because` says why a toolchain is kept (`default`,
+  `override for <path>`, `RUSTUP_TOOLCHAIN`, `pinned by <file>`); it is `null`
+  otherwise.
+- `unreadable` lists paths that could not be read and are not counted.
+
 ## Not yet
 
 - Target directories of other projects (`--projects`, #49).
-- JSON output (#51).
 - Third-party caches (sccache, IDE caches), and Windows.

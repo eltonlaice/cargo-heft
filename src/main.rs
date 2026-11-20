@@ -34,7 +34,7 @@ const SCHEMA_VERSION: u32 = 1;
 const USAGE: &str = "\
 Usage: cargo heft [--target-dir <DIR>] [--top <N>] [--json]
        cargo heft --what-if [--profile <NAME>] [--only <IDS>] [--json] [-- <cargo build args>]
-       cargo heft disk
+       cargo heft disk [--json]
 
   --target-dir <DIR>  directory to measure (default: the workspace's target dir)
   --top <N>           crates to list (default 15)
@@ -45,7 +45,7 @@ Usage: cargo heft [--target-dir <DIR>] [--top <N>] [--json]
   --only <IDS>        settings --what-if builds, comma-separated (default: all):
                       configured, line-tables, no-debug, no-incremental,
                       line-tables-no-incremental
-  disk                the Cargo home and the rustup home by part, and what
+  disk [--json]       the Cargo home and the rustup home by part, and what
                       removing each part would cost (reads only)
   -V, --version       print the version";
 
