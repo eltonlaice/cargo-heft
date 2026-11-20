@@ -42,7 +42,10 @@ The tests drive the compiled binary as a black box:
 - `tests/cli.rs` pins the command line: flags, errors and exit codes.
 - Unit tests in `src/main.rs` pin how single paths are classified.
 
-`tests/common` has the helpers; `assert_consistent` is the one to call on
+The fixture's manifests are stored as `Cargo.toml.in`, so Cargo packages
+the tests with the crate (it leaves out any directory with a `Cargo.toml`);
+`fixture()` copies the workspace to a scratch directory and names them back.
+Edit the `.in` files. `tests/common` has the helpers; `assert_consistent` is the one to call on
 any new JSON report. The fixture has a library, a binary and a build script
 on purpose: between them they produce every kind of artifact the tool
 classifies.

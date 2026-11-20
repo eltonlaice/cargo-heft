@@ -22,8 +22,43 @@ pub fn repo() -> PathBuf {
 }
 
 /// The workspace built by the end-to-end tests.
+///
+/// Its manifests are stored as `Cargo.toml.in`: Cargo leaves any directory
+/// with a `Cargo.toml` out of the published package, and with it every test
+/// that needs the fixture (#8). So each test binary copies `tests/fixture`
+/// once into its own scratch directory, naming the manifests back.
 pub fn fixture() -> PathBuf {
-    repo().join("tests/fixture")
+    static DIR: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
+    DIR.get_or_init(|| {
+        let dst = Path::new(env!("CARGO_TARGET_TMPDIR"))
+            .join(format!("cargo-heft-fixture-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dst);
+        copy_fixture(&repo().join("tests/fixture"), &dst);
+        dst
+    })
+    .clone()
+}
+
+fn copy_fixture(src: &Path, dst: &Path) {
+    fs::create_dir_all(dst).expect("create fixture copy");
+    for entry in fs::read_dir(src).expect("read fixture") {
+        let entry = entry.unwrap();
+        let name = entry.file_name();
+        if name == "target" {
+            continue;
+        }
+        let from = entry.path();
+        let to = dst.join(if name == "Cargo.toml.in" {
+            "Cargo.toml".into()
+        } else {
+            name
+        });
+        if entry.file_type().unwrap().is_dir() {
+            copy_fixture(&from, &to);
+        } else {
+            fs::copy(&from, &to).expect("copy fixture file");
+        }
+    }
 }
 
 /// What a run of the binary produced.

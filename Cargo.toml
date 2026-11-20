@@ -9,7 +9,7 @@ keywords = ["cargo", "subcommand", "target", "disk", "size"]
 categories = ["development-tools::cargo-plugins"]
 readme = "README.md"
 rust-version = "1.88"
-exclude = ["bench/", ".github/", "tests/"]
+exclude = ["bench/", ".github/"]
 
 [dependencies]
 object = { version = "0.41", default-features = false, features = ["std", "read_core", "archive", "elf", "macho", "coff"] }
