@@ -17,6 +17,8 @@ Notable changes to cargo-heft. The format follows
   each `.rlib`, object file and binary, instead of the whole file. Same
   numbers; on a 347 MB target directory peak memory went from 36 MB to
   8 MB. (#9)
+- The integration tests are in the published crate: `cargo test` works from
+  the downloaded source. (#8)
 
 ## [0.3.1] - 2026-11-19
 
