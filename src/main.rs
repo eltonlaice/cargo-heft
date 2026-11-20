@@ -289,7 +289,7 @@ struct Parts {
     debuginfo: u64,
 }
 
-fn object_parts(data: &[u8], p: &mut Parts) {
+fn object_parts<'d, R: object::ReadRef<'d>>(data: R, p: &mut Parts) {
     use object::{Object, ObjectSection, SectionKind};
     let Ok(file) = object::File::parse(data) else {
         return;
@@ -311,22 +311,25 @@ fn object_parts(data: &[u8], p: &mut Parts) {
 
 /// Looks inside an archive (`.rlib`, which adds metadata to object files, or
 /// a `.a` static library) or a single object file, executable or dylib.
-fn parts(data: &[u8], is_archive: bool) -> Parts {
+///
+/// Reads through a cache, so only the headers and section tables it parses
+/// come off the disk, not the whole file: a debug binary or rlib can be
+/// hundreds of MB, and a target directory holds thousands of them.
+fn parts<R: io::Read + io::Seek>(file: R, is_archive: bool) -> Parts {
+    let cache = object::ReadCache::new(file);
     let mut p = Parts::default();
-    match object::read::archive::ArchiveFile::parse(data) {
+    match object::read::archive::ArchiveFile::parse(&cache) {
         Ok(archive) if is_archive => {
             for member in archive.members().flatten() {
-                let Ok(bytes) = member.data(data) else {
-                    continue;
-                };
                 if member.name() == b"lib.rmeta" {
-                    p.metadata += bytes.len() as u64;
+                    p.metadata += member.size();
                 } else {
-                    object_parts(bytes, &mut p);
+                    let (offset, size) = member.file_range();
+                    object_parts(cache.range(offset, size), &mut p);
                 }
             }
         }
-        _ => object_parts(data, &mut p),
+        _ => object_parts(&cache, &mut p),
     }
     p
 }
@@ -478,12 +481,16 @@ impl Report {
             | "binary"
             | "dylib"
             | "build script executable" => {
-                // ponytail: reads each file whole; mmap if huge targets get slow.
-                let data = fs::read(root.join(&f.rel)).unwrap_or_default();
-                let p = parts(&data, matches!(kind, "rlib" | "static library"));
+                // A file that cannot be opened counts as code, as before.
+                let (len, p) = match fs::File::open(root.join(&f.rel)) {
+                    Ok(file) => (
+                        file.metadata().map_or(0, |m| m.len()),
+                        parts(file, matches!(kind, "rlib" | "static library")),
+                    ),
+                    Err(_) => (0, Parts::default()),
+                };
                 // Scale logical bytes to the blocks the file occupies.
-                let scale =
-                    |n: u64| (n as u128 * f.bytes as u128 / data.len().max(1) as u128) as u64;
+                let scale = |n: u64| (n as u128 * f.bytes as u128 / len.max(1) as u128) as u64;
                 let (metadata, debuginfo) = (scale(p.metadata).min(f.bytes), scale(p.debuginfo));
                 let debuginfo = debuginfo.min(f.bytes - metadata);
                 put("metadata (inside rlib/dylib)", metadata);
@@ -1413,13 +1420,13 @@ mod tests {
     #[test]
     fn reads_metadata_out_of_an_rlib_archive() {
         let data = archive(&[("lib.rmeta", &[0xab; 100]), ("object", &[0; 13])]);
-        let p = parts(&data, true);
+        let p = parts(io::Cursor::new(&data), true);
         assert_eq!(p.metadata, 100);
         assert_eq!(p.debuginfo, 0);
 
         // The same bytes are not an rlib when the caller says so: the archive
         // is then parsed as an object file, which fails harmlessly.
-        let p = parts(&data, false);
+        let p = parts(io::Cursor::new(&data), false);
         assert_eq!(p.metadata, 0);
         assert_eq!(p.debuginfo, 0);
     }
@@ -1427,12 +1434,12 @@ mod tests {
     #[test]
     fn ignores_bytes_that_are_not_an_object_or_an_archive() {
         for data in [&b""[..], &b"not an object file"[..], &[0u8; 64][..]] {
-            let p = parts(data, false);
+            let p = parts(io::Cursor::new(data), false);
             assert_eq!(p.metadata, 0);
             assert_eq!(p.debuginfo, 0);
         }
         let mut p = Parts::default();
-        object_parts(&[0u8; 17], &mut p);
+        object_parts(&[0u8; 17][..], &mut p);
         assert_eq!(p.metadata, 0);
         assert_eq!(p.debuginfo, 0);
     }

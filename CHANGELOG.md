@@ -11,6 +11,13 @@ Notable changes to cargo-heft. The format follows
 - `cargo heft disk --json`, with its own `schema_version`, documented in
   `docs/disk.md`. (#51)
 
+### Changed
+
+- The content view reads only the headers and section tables it needs from
+  each `.rlib`, object file and binary, instead of the whole file. Same
+  numbers; on a 347 MB target directory peak memory went from 36 MB to
+  8 MB. (#9)
+
 ## [0.3.1] - 2026-11-19
 
 ### Changed
