@@ -34,7 +34,7 @@ const SCHEMA_VERSION: u32 = 1;
 const USAGE: &str = "\
 Usage: cargo heft [--target-dir <DIR>] [--top <N>] [--json]
        cargo heft --what-if [--profile <NAME>] [--only <IDS>] [--json] [-- <cargo build args>]
-       cargo heft disk [--json]
+       cargo heft disk [--projects <DIR>]... [--json]
 
   --target-dir <DIR>  directory to measure (default: the workspace's target dir)
   --top <N>           crates to list (default 15)
@@ -47,6 +47,8 @@ Usage: cargo heft [--target-dir <DIR>] [--top <N>] [--json]
                       line-tables-no-incremental
   disk [--json]       the Cargo home and the rustup home by part, and what
                       removing each part would cost (reads only)
+  disk --projects <DIR>
+                      also the target directories of the workspaces under DIR
   -V, --version       print the version";
 
 const EXAMPLES: &str = "\
@@ -56,7 +58,8 @@ Examples:
   cargo heft --json | jq .total_bytes
   cargo heft --what-if -- -p my-crate what each profile setting would save
   cargo heft --what-if --only configured,line-tables
-  cargo heft disk                     what Rust keeps in ~/.cargo and ~/.rustup";
+  cargo heft disk                     what Rust keeps in ~/.cargo and ~/.rustup
+  cargo heft disk --projects ~/code   and in the target/ of each project there";
 
 /// Profile settings `--what-if` tries: the id `--only` takes, the name shown,
 /// and (key, value) pairs of `[profile.*]`.

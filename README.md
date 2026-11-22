@@ -39,7 +39,8 @@ macOS and Linux.
 - JSON output for scripts and CI, for both the target report and
   `cargo heft disk`.
 - `cargo heft disk` measures the Cargo home and the rustup home by part and
-  says what removing each part would cost.
+  says what removing each part would cost, and with `--projects <DIR>` the
+  target directory of every workspace under a directory.
 
 See [how it counts](docs/how-it-counts.md) for the details and the limits.
 
@@ -57,6 +58,7 @@ cargo heft --top 5      # list only the five largest crates
 cargo heft --what-if    # what would each profile setting save?
 cargo heft --json       # machine-readable output
 cargo heft disk         # what Rust keeps in ~/.cargo and ~/.rustup
+cargo heft disk --projects ~/code   # and in the target/ of each project there
 ```
 
 Part of the output for ripgrep after a `dev` build:
@@ -117,8 +119,9 @@ It removes nothing. What each part is and what removing it costs is in
   `-p my-crate`.
 - `disk`: measure the Cargo home (`CARGO_HOME`, default `~/.cargo`) and the
   rustup home (`RUSTUP_HOME`, default `~/.rustup`) instead of a target
-  directory. With `--json`, machine-readable output (schema in
-  [docs/disk.md](docs/disk.md)).
+  directory. With `--projects <DIR>` (repeatable), also the target directory
+  of each Cargo workspace under `DIR`. With `--json`, machine-readable output
+  (schema in [docs/disk.md](docs/disk.md)).
 
 ## Results
 

@@ -231,7 +231,14 @@ fn is_toolchain(dir: &str, name: &str) -> bool {
             .is_some_and(|triple| triple.starts_with(|c: char| c.is_ascii_alphabetic()))
 }
 
-pub fn inventory(cargo_home: PathBuf, rustup_home: PathBuf) -> (Vec<Home>, Vec<PathBuf>) {
+/// The Cargo home, the rustup home, then the target directories under each
+/// of `project_dirs`. One inode set for all: a file in two of them is
+/// counted once, in the first.
+pub fn inventory(
+    cargo_home: PathBuf,
+    rustup_home: PathBuf,
+    project_dirs: Vec<PathBuf>,
+) -> (Vec<Home>, Vec<PathBuf>) {
     let mut seen = HashSet::new();
     let mut unreadable = Vec::new();
     let cargo = measure(
@@ -280,7 +287,164 @@ pub fn inventory(cargo_home: PathBuf, rustup_home: PathBuf) -> (Vec<Home>, Vec<P
             }
         },
     );
-    (vec![cargo, rustup], unreadable)
+    let mut homes = vec![cargo, rustup];
+    for d in project_dirs {
+        homes.push(projects(d, &mut seen, &mut unreadable));
+    }
+    (homes, unreadable)
+}
+
+/// `path` as a shell word: quoted when it has a space or a quote in it.
+fn shell_word(path: &Path) -> String {
+    let s = path.to_string_lossy();
+    match s.contains(|c: char| c.is_whitespace() || "'\"$`\\".contains(c)) {
+        true => format!("'{}'", s.replace('\'', r"'\''")),
+        false => s.into_owned(),
+    }
+}
+
+/// The workspace root and the target and build directories `cargo metadata`
+/// gives for `manifest`, which may be any member. They follow
+/// `CARGO_TARGET_DIR`, `build.target-dir` and `build.build-dir` as Cargo
+/// itself would. Cargo reads `.cargo/config.toml` from the directory it runs
+/// in, not the manifest's, so it runs in the manifest's directory.
+/// `--offline --no-deps`: nothing is fetched or resolved. A project that
+/// pins a toolchain which is not installed would make rustup download it, so
+/// auto-install is off: Cargo fails instead, and the project falls back to
+/// its `target/`.
+fn workspace_of(manifest: &Path) -> Option<(PathBuf, Vec<PathBuf>, Vec<PathBuf>)> {
+    let out = crate::cargo()
+        .current_dir(manifest.parent()?)
+        .env("RUSTUP_AUTO_INSTALL", "0")
+        .stderr(std::process::Stdio::null())
+        .args([
+            "metadata",
+            "--format-version",
+            "1",
+            "--no-deps",
+            "--offline",
+        ])
+        .arg("--manifest-path")
+        .arg(manifest)
+        .output()
+        .ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    let v: serde_json::Value = serde_json::from_slice(&out.stdout).ok()?;
+    let path = |k: &str| v[k].as_str().map(PathBuf::from);
+    let root = path("workspace_root")?;
+    let mut dirs = vec![path("target_directory")?];
+    if let Some(b) = path("build_directory").filter(|b| *b != dirs[0]) {
+        dirs.push(b);
+    }
+    let members = v["packages"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|p| {
+            Path::new(p["manifest_path"].as_str()?)
+                .parent()
+                .map(Path::to_path_buf)
+        })
+        .collect();
+    Some((root, dirs, members))
+}
+
+/// Cargo workspaces under `dir`, each with its target and build directories.
+/// A `Cargo.toml` that belongs to a workspace already found is skipped.
+/// Never entered: symlinks, hidden directories, and directories Cargo made
+/// (they hold a CACHEDIR.TAG; `target/package` has `Cargo.toml` files of
+/// its own).
+fn find_workspaces(
+    dir: &Path,
+    found: &mut Vec<(PathBuf, Vec<PathBuf>)>,
+    members: &mut HashSet<PathBuf>,
+    unreadable: &mut Vec<PathBuf>,
+) {
+    if dir.join("CACHEDIR.TAG").exists() {
+        return;
+    }
+    let manifest = dir.join("Cargo.toml");
+    if manifest.is_file() && !members.contains(dir) {
+        match workspace_of(&manifest) {
+            Some((root, dirs, of)) => {
+                members.extend(of);
+                members.insert(root.clone());
+                members.insert(dir.to_path_buf());
+                found.push((root, dirs));
+            }
+            // A manifest Cargo cannot read: its `target/`, if there is one.
+            None => {
+                members.insert(dir.to_path_buf());
+                found.push((dir.to_path_buf(), vec![dir.join("target")]));
+            }
+        }
+    }
+    let Ok(entries) = fs::read_dir(dir) else {
+        unreadable.push(dir.to_path_buf());
+        return;
+    };
+    let mut subdirs: Vec<PathBuf> = entries
+        .flatten()
+        .filter(|e| e.file_type().is_ok_and(|t| t.is_dir()))
+        .filter(|e| !e.file_name().to_string_lossy().starts_with('.'))
+        .map(|e| e.path())
+        .collect();
+    subdirs.sort();
+    for d in subdirs {
+        find_workspaces(&d, found, members, unreadable);
+    }
+}
+
+/// The target directories of the workspaces under `dir`, one part each.
+/// Several workspaces that share one target directory (`CARGO_TARGET_DIR`)
+/// give one part, counted once.
+fn projects(dir: PathBuf, seen: &mut HashSet<(u64, u64)>, unreadable: &mut Vec<PathBuf>) -> Home {
+    let mut found = Vec::new();
+    if dir.is_dir() {
+        find_workspaces(&dir, &mut found, &mut HashSet::new(), unreadable);
+    }
+    // Cargo gives real paths (/private/var/... on macOS for /var/...).
+    let base = dir.canonicalize().unwrap_or_else(|_| dir.clone());
+    let mut measured = HashSet::new();
+    let (mut parts, mut total) = (Vec::new(), 0);
+    for (root, dirs) in found {
+        for d in dirs {
+            // Not built yet, or already counted for another workspace.
+            let Ok(real) = d.canonicalize() else { continue };
+            if !real.is_dir() || !measured.insert(real.clone()) {
+                continue;
+            }
+            let mut bytes = 0;
+            if let Ok(md) = fs::symlink_metadata(&real) {
+                let (b, id, _) = disk_usage(&md);
+                if seen.insert(id) {
+                    bytes += b;
+                }
+            }
+            du(&real, &real, seen, unreadable, &mut |_, b| bytes += b);
+            total += bytes;
+            let name = real.strip_prefix(&base).unwrap_or(&real);
+            parts.push(Part {
+                name: name.to_string_lossy().into_owned(),
+                bytes,
+                class: Class::Rebuilt,
+                command: Some(format!(
+                    "cargo clean --manifest-path {}",
+                    shell_word(&root.join("Cargo.toml"))
+                )),
+            });
+        }
+    }
+    parts.sort_by(|a, b| b.bytes.cmp(&a.bytes).then(a.name.cmp(&b.name)));
+    Home {
+        title: "Target directories",
+        found: dir.is_dir(),
+        path: dir,
+        total,
+        parts,
+    }
 }
 
 /// Version of `cargo heft disk --json`, separate from the target report's:
@@ -310,7 +474,11 @@ fn json_report(homes: &[Home], unreadable: &[PathBuf]) -> serde_json::Value {
                 })
                 .collect();
             serde_json::json!({
-                "name": if h.title == "Cargo home" { "cargo" } else { "rustup" },
+                "name": match h.title {
+                    "Cargo home" => "cargo",
+                    "rustup home" => "rustup",
+                    _ => "projects",
+                },
                 "path": h.path.to_string_lossy(),
                 "found": h.found,
                 "total_bytes": h.total,
@@ -327,14 +495,27 @@ fn json_report(homes: &[Home], unreadable: &[PathBuf]) -> serde_json::Value {
 }
 
 pub fn run(args: impl Iterator<Item = OsString>) -> Result<(), String> {
-    const USAGE: &str = "Usage: cargo heft disk [--json]\n\n  \
+    const USAGE: &str = "Usage: cargo heft disk [--projects <DIR>]... [--json]\n\n  \
         Measures the Cargo home (CARGO_HOME, default ~/.cargo) and the rustup\n  \
         home (RUSTUP_HOME, default ~/.rustup) by part, and says what removing\n  \
         each part would cost. It reads only; nothing is removed.\n\n  \
-        --json  machine-readable output (schema in docs/disk.md)";
+        --projects <DIR>  also the target directories of the Cargo workspaces\n                    \
+        under DIR (repeatable; the home directory is never searched\n                    \
+        unless named)\n  \
+        --json            machine-readable output (schema in docs/disk.md)";
     let mut json = false;
-    for a in args {
+    let mut project_dirs: Vec<PathBuf> = Vec::new();
+    let mut args = args.peekable();
+    while let Some(a) = args.next() {
+        if let Some(d) = a.to_str().and_then(|s| s.strip_prefix("--projects=")) {
+            project_dirs.push(PathBuf::from(d));
+            continue;
+        }
         match a.to_str() {
+            Some("--projects") => match args.next() {
+                Some(d) => project_dirs.push(PathBuf::from(d)),
+                None => return Err(format!("--projects needs a directory\n{USAGE}")),
+            },
             Some("-h" | "--help") => {
                 say!("{USAGE}");
                 return Ok(());
@@ -351,6 +532,7 @@ pub fn run(args: impl Iterator<Item = OsString>) -> Result<(), String> {
     let (homes, unreadable) = inventory(
         home_dir("CARGO_HOME", ".cargo")?,
         home_dir("RUSTUP_HOME", ".rustup")?,
+        project_dirs,
     );
     if json {
         say!("{:#}", json_report(&homes, &unreadable));
@@ -370,6 +552,10 @@ pub fn run(args: impl Iterator<Item = OsString>) -> Result<(), String> {
             human(h.total),
             h.total as f64 / 1_048_576.0
         );
+        if h.parts.is_empty() && h.title == "Target directories" {
+            say!("  no built Cargo workspace found\n");
+            continue;
+        }
         let w = h.parts.iter().map(|p| p.name.len()).max().unwrap_or(0);
         for p in &h.parts {
             let cmd = p.command.as_deref().unwrap_or("");
@@ -385,7 +571,8 @@ pub fn run(args: impl Iterator<Item = OsString>) -> Result<(), String> {
     }
     say!("Total: {}", human(grand));
     say!(
-        "\n  rebuilt   recreated from another cache on this machine, no network\n  \
+        "\n  rebuilt   recreated on this machine, no network: from another cache, or\n            \
+         for a target directory, by the next build\n  \
          download  fetched again: the next build needs the network, offline builds fail\n  \
          keep      installed tools, settings, credentials, a toolchain in use here\n            \
          (default, override, RUSTUP_TOOLCHAIN or rust-toolchain.toml),\n            \
