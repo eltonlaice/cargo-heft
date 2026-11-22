@@ -8,6 +8,10 @@ Notable changes to cargo-heft. The format follows
 
 ### Added
 
+- `cargo heft disk --projects <DIR>` lists the target directory of every
+  Cargo workspace under `DIR`, with its size and the `cargo clean` command
+  for it. Target directories moved by `CARGO_TARGET_DIR`, `build.target-dir`
+  or `build.build-dir` are found, and a shared one is counted once. (#49)
 - `cargo heft disk --json`, with its own `schema_version`, documented in
   `docs/disk.md`. (#51)
 

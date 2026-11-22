@@ -380,3 +380,197 @@ fn a_channel_name_does_not_keep_dated_toolchains() {
         "download rustup toolchain uninstall nightly-2026-11-01-x"
     );
 }
+
+/// A package at `dir` with a source file, so `cargo metadata` accepts it.
+fn package(dir: &Path, name: &str) {
+    file(&dir.join("src/lib.rs"), 0);
+    fs::write(
+        dir.join("Cargo.toml"),
+        format!("[package]\nname = \"{name}\"\nversion = \"0.1.0\"\nedition = \"2021\"\n"),
+    )
+    .unwrap();
+}
+
+/// A target directory as Cargo marks it, with `bytes` of build output.
+fn built(target: &Path, bytes: usize) {
+    file(&target.join("CACHEDIR.TAG"), 43);
+    file(&target.join("debug/deps/libx.rlib"), bytes);
+}
+
+/// `cargo heft disk` with `args`, the homes in `tmp` and no target directory
+/// set from outside unless `envs` sets one.
+fn disk_projects(tmp: &Path, args: &[&str], envs: &[(&str, &str)]) -> Outcome {
+    let (cargo, rustup) = homes(tmp);
+    let (c, r) = (cargo.to_str().unwrap(), rustup.to_str().unwrap());
+    let mut all = vec![("CARGO_HOME", c), ("RUSTUP_HOME", r)];
+    all.extend_from_slice(envs);
+    let mut remove = vec!["RUSTUP_TOOLCHAIN"];
+    if !envs.iter().any(|(k, _)| *k == "CARGO_TARGET_DIR") {
+        remove.push("CARGO_TARGET_DIR");
+    }
+    let mut a = vec!["disk"];
+    a.extend_from_slice(args);
+    run_with(tmp, &a, &all, &remove)
+}
+
+/// The rows under "Target directories": name, then the rest split on spaces.
+fn project_rows(out: &str) -> Vec<Vec<String>> {
+    out.lines()
+        .skip_while(|l| !l.starts_with("Target directories"))
+        .skip(1)
+        .take_while(|l| !l.is_empty())
+        .map(|l| l.split_whitespace().map(String::from).collect())
+        .collect()
+}
+
+#[test]
+fn projects_lists_each_workspace_target_once() {
+    let t = TempDir::new("disk-projects");
+    let code = t.join("code");
+    // A package, a workspace of two members, and a package whose
+    // .cargo/config.toml moves its target directory.
+    package(&code.join("a"), "a");
+    built(&code.join("a/target"), 30_000);
+    fs::create_dir_all(code.join("ws")).unwrap();
+    fs::write(
+        code.join("ws/Cargo.toml"),
+        "[workspace]\nmembers = [\"m1\", \"m2\"]\nresolver = \"2\"\n",
+    )
+    .unwrap();
+    package(&code.join("ws/m1"), "m1");
+    package(&code.join("ws/m2"), "m2");
+    built(&code.join("ws/target"), 50_000);
+    package(&code.join("c"), "c");
+    fs::create_dir_all(code.join("c/.cargo")).unwrap();
+    fs::write(
+        code.join("c/.cargo/config.toml"),
+        "[build]\ntarget-dir = \"out\"\n",
+    )
+    .unwrap();
+    built(&code.join("c/out"), 20_000);
+    // A Cargo.toml inside a target directory is build output, not a project.
+    package(&code.join("a/target/package/a-0.1.0"), "a");
+    // A package that was never built has nothing to list.
+    package(&code.join("new"), "new");
+
+    let out = disk_projects(t.path(), &["--projects", code.to_str().unwrap()], &[]);
+    out.assert_ok();
+    let rows = project_rows(&out.stdout);
+    let names: Vec<&str> = rows.iter().map(|r| r[0].as_str()).collect();
+    assert_eq!(names, ["ws/target", "a/target", "c/out"], "{}", out.stdout);
+    for r in &rows {
+        assert_eq!(r[3..6], ["rebuilt", "cargo", "clean"], "{r:?}");
+    }
+    let ws_manifest = code.join("ws/Cargo.toml").canonicalize().unwrap();
+    assert_eq!(rows[0].last().unwrap(), ws_manifest.to_str().unwrap());
+    // The section total is what du gives for the three directories.
+    let want: u64 = ["a/target", "ws/target", "c/out"]
+        .iter()
+        .map(|d| du_bytes(&code.join(d)))
+        .sum();
+    let header = out
+        .stdout
+        .lines()
+        .find(|l| l.starts_with("Target directories"))
+        .unwrap();
+    assert!(
+        header.contains(&format!("({}, ", human_bytes(want))),
+        "{header}"
+    );
+    // Read only.
+    assert!(code.join("a/target/debug/deps/libx.rlib").exists());
+}
+
+#[test]
+fn a_shared_target_directory_is_counted_once() {
+    let t = TempDir::new("disk-projects-shared");
+    let code = t.join("code");
+    package(&code.join("a"), "a");
+    package(&code.join("b"), "b");
+    let shared = t.join("shared");
+    built(&shared, 40_000);
+    let out = disk_projects(
+        t.path(),
+        &["--projects", code.to_str().unwrap()],
+        &[("CARGO_TARGET_DIR", shared.to_str().unwrap())],
+    );
+    out.assert_ok();
+    let rows = project_rows(&out.stdout);
+    assert_eq!(rows.len(), 1, "{}", out.stdout);
+    assert_eq!(rows[0][0], shared.canonicalize().unwrap().to_str().unwrap());
+}
+
+#[test]
+fn projects_in_json_and_without_a_directory() {
+    let t = TempDir::new("disk-projects-json");
+    let code = t.join("code");
+    package(&code.join("a"), "a");
+    built(&code.join("a/target"), 30_000);
+    let arg = format!("--projects={}", code.display());
+    let v = disk_projects(t.path(), &[&arg, "--json"], &[])
+        .assert_ok()
+        .json();
+    let homes = v["homes"].as_array().unwrap();
+    let names: Vec<&str> = homes.iter().map(|h| h["name"].as_str().unwrap()).collect();
+    assert_eq!(names, ["cargo", "rustup", "projects"]);
+    let p = &homes[2];
+    assert_eq!(p["parts"][0]["name"], "a/target");
+    assert_eq!(p["parts"][0]["class"], "rebuilt");
+    let sum: u64 = homes
+        .iter()
+        .map(|h| h["total_bytes"].as_u64().unwrap())
+        .sum();
+    assert_eq!(v["total_bytes"].as_u64().unwrap(), sum);
+
+    let empty = t.join("empty");
+    fs::create_dir_all(&empty).unwrap();
+    let out = disk_projects(t.path(), &["--projects", empty.to_str().unwrap()], &[]);
+    out.assert_ok();
+    assert!(
+        out.stdout.contains("no built Cargo workspace found"),
+        "{}",
+        out.stdout
+    );
+
+    let out = disk_projects(t.path(), &["--projects"], &[]);
+    out.assert_failed();
+    assert!(
+        out.stderr.contains("--projects needs a directory"),
+        "{}",
+        out.stderr
+    );
+}
+
+#[test]
+fn a_pinned_toolchain_that_is_missing_is_not_installed() {
+    let t = TempDir::new("disk-projects-pin");
+    let code = t.join("code");
+    package(&code.join("p"), "p");
+    fs::write(
+        code.join("p/rust-toolchain.toml"),
+        "[toolchain]\nchannel = \"nightly-2025-01-02\"\n",
+    )
+    .unwrap();
+    built(&code.join("p/target"), 10_000);
+    // Through the rustup proxy, as when the binary is run on its own.
+    let out = run_with(
+        t.path(),
+        &["disk", "--projects", code.to_str().unwrap()],
+        &[
+            ("CARGO_HOME", t.join("cargo").to_str().unwrap()),
+            ("RUSTUP_HOME", t.join("rustup").to_str().unwrap()),
+        ],
+        &["CARGO", "RUSTUP_TOOLCHAIN", "CARGO_TARGET_DIR"],
+    );
+    out.assert_ok();
+    assert_eq!(
+        project_rows(&out.stdout)[0][0],
+        "p/target",
+        "{}",
+        out.stdout
+    );
+    assert!(
+        !t.join("rustup/toolchains").exists(),
+        "a toolchain was installed"
+    );
+}

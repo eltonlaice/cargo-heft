@@ -1,7 +1,8 @@
 # cargo heft disk
 
 `cargo heft` measures one target directory. `cargo heft disk` measures what
-Rust keeps outside it: the Cargo home and the rustup home. It reads only.
+Rust keeps outside it: the Cargo home, the rustup home and, when asked, the
+target directories of other projects. It reads only.
 Cleaning comes later, as a separate subcommand, and only if users ask for it
 (see #45).
 
@@ -10,11 +11,45 @@ Cleaning comes later, as a separate subcommand, and only if users ask for it
 - The Cargo home: `CARGO_HOME`, or `~/.cargo` when it is not set.
 - The rustup home: `RUSTUP_HOME`, or `~/.rustup` when it is not set.
 
+- With `--projects <DIR>`: the target directories of the Cargo workspaces
+  under `DIR`. The option can be given more than once. The home directory is
+  never searched unless it is named.
+
 A home that does not exist is reported as not found, not as an error. Sizes are
 counted the same way as for a target directory: blocks on disk, every inode
 once, so each total matches `du -s`. Symlinks are counted, not followed. A
 directory that cannot be read is named on stderr and left out of the totals;
 the rest is still measured.
+
+## Projects
+
+`--projects <DIR>` walks `DIR` for `Cargo.toml` files and asks
+`cargo metadata --no-deps --offline`, run in that directory, where the
+workspace's target directory is, and its build directory when that is
+separate. So `CARGO_TARGET_DIR`, `build.target-dir` and `build.build-dir`
+are followed the way Cargo follows them, and the directory may be outside
+`DIR`. Nothing is fetched or resolved.
+
+- One row per target or build directory, named relative to `DIR` when it is
+  inside it. The members of a workspace give one row, not one each.
+- Several workspaces that share a target directory (`CARGO_TARGET_DIR`) give
+  one row, counted once.
+- A workspace that was never built has no row.
+- A `Cargo.toml` that Cargo cannot read: its `target/`, if there is one.
+- A project that pins a toolchain which is not installed
+  (`rust-toolchain.toml`) is not a reason to install it: `cargo metadata`
+  runs with `RUSTUP_AUTO_INSTALL=0`, fails, and the project's `target/` is
+  used.
+- Not searched: symlinks, hidden directories (`.git`, `.cargo`), and
+  directories Cargo made, which hold a `CACHEDIR.TAG` (`target/package` has
+  `Cargo.toml` files of its own).
+
+Each row is `rebuilt`: the next build of the workspace creates it again. The
+command is `cargo clean --manifest-path <workspace>/Cargo.toml`; with a
+shared target directory, that cleans it for every workspace that uses it.
+
+Each project means one `cargo metadata`, a few hundredths of a second, so a
+directory with many projects takes a few seconds.
 
 ## What each part is, and what removing it costs
 
@@ -72,7 +107,9 @@ meaning; adding a key does not change it.
 }
 ```
 
-- `homes` is always `cargo` then `rustup`. A home that does not exist has
+- `homes` is always `cargo` then `rustup`, then one `projects` entry per
+  `--projects` directory, in the order given, with `path` set to that
+  directory. A home that does not exist has
   `found: false`, `total_bytes: 0` and no parts.
 - `class` is `rebuilt`, `download` or `keep`.
 - `command` is the command that removes the part, or `null` for `keep`.
@@ -83,5 +120,4 @@ meaning; adding a key does not change it.
 
 ## Not yet
 
-- Target directories of other projects (`--projects`, #49).
 - Third-party caches (sccache, IDE caches), and Windows.
