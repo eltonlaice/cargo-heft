@@ -57,7 +57,8 @@ fn total_matches_du_on_a_real_build() {
     assert_eq!(
         total.div_ceil(1024),
         du,
-        "total {total} bytes vs du {du} KiB"
+        "total {total} bytes vs du {du} KiB, by kind {}",
+        v["by_kind"]
     );
 
     let kinds = v["by_kind"].as_object().unwrap();

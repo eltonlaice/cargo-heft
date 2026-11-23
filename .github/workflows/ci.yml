@@ -37,7 +37,7 @@ jobs:
       - run: rustup toolchain install "$TOOLCHAIN" --profile minimal --component clippy,rustfmt && rustup default "$TOOLCHAIN"
       - run: cargo fmt --check
       - run: cargo clippy --all-targets -- -D warnings
-      - run: cargo test
+      - run: cargo test --no-fail-fast
       - name: Run on its own target directory
         run: cargo run --quiet -- --top 5
 
