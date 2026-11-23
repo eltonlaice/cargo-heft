@@ -7,6 +7,11 @@ the total matches `du -s`. Units are decimal: 1 MB is 1,000,000 bytes. `du -h`
 counts in units of 1024, which is why the first line of the output also gives
 the total in MiB.
 
+On Windows the size is the file's allocation size, and a file is identified
+by its volume serial number and file index, so hard links are still counted
+once. Compare with the "Size on disk" Windows Explorer shows; there is no
+`du`. MSVC's `.pdb` files count as debuginfo.
+
 When the target directory is a symlink, it is measured where it points, and
 the first line shows both paths. Compare with `du -sL link` or `du -s` on the
 real path: `du -s link` counts only the link.
@@ -61,8 +66,6 @@ the profile and the kinds keep their names.
 - It does not delete anything. For cleaning there are `cargo clean`,
   [cargo-sweep](https://crates.io/crates/cargo-sweep) and
   [kondo](https://crates.io/crates/kondo).
-- It does not support Windows. There the code would fall back to file
-  lengths and could not detect hard links, so the numbers would be wrong.
 - `--what-if` runs five full builds, so it takes five times as long as a
   clean build. `--only` picks fewer. Ctrl-C stops it and removes the
   temporary build directory. `incremental = false` also makes rebuilds after an edit

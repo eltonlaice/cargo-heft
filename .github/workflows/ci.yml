@@ -18,13 +18,16 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        os: [ubuntu-latest, macos-latest, windows-latest]
         toolchain: [stable]
         include:
           # The minimum supported Rust version, declared in Cargo.toml.
           - os: ubuntu-latest
             toolchain: "1.88"
     runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
     env:
       TOOLCHAIN: ${{ matrix.toolchain }}
     steps:

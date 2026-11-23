@@ -153,6 +153,7 @@ fn a_missing_home_is_reported_not_an_error() {
     assert!(out.stdout.contains("registry/src"));
 }
 
+#[cfg(unix)]
 #[test]
 fn a_symlink_is_counted_not_followed() {
     let t = TempDir::new("disk-symlink");
@@ -179,6 +180,7 @@ fn a_symlink_is_counted_not_followed() {
     );
 }
 
+#[cfg(unix)]
 #[test]
 fn an_unreadable_directory_is_named_and_the_rest_measured() {
     use std::os::unix::fs::PermissionsExt;
@@ -283,6 +285,7 @@ fn disk_json_has_the_same_numbers_and_says_why_a_part_is_kept() {
     assert!(v["unreadable"].as_array().unwrap().is_empty());
 }
 
+#[cfg(unix)]
 fn unsafe_running_as_root() -> bool {
     std::process::Command::new("id")
         .arg("-u")
@@ -413,6 +416,15 @@ fn disk_projects(tmp: &Path, args: &[&str], envs: &[(&str, &str)]) -> Outcome {
     run_with(tmp, &a, &all, &remove)
 }
 
+/// `a/b` as the report prints it on this system (`a\\b` on Windows).
+fn native(rel: &str) -> String {
+    Path::new(rel)
+        .iter()
+        .collect::<std::path::PathBuf>()
+        .display()
+        .to_string()
+}
+
 /// The rows under "Target directories": name, then the rest split on spaces.
 fn project_rows(out: &str) -> Vec<Vec<String>> {
     out.lines()
@@ -457,7 +469,8 @@ fn projects_lists_each_workspace_target_once() {
     out.assert_ok();
     let rows = project_rows(&out.stdout);
     let names: Vec<&str> = rows.iter().map(|r| r[0].as_str()).collect();
-    assert_eq!(names, ["ws/target", "a/target", "c/out"], "{}", out.stdout);
+    let want_names: Vec<String> = ["ws/target", "a/target", "c/out"].map(native).into();
+    assert_eq!(names, want_names, "{}", out.stdout);
     for r in &rows {
         assert_eq!(r[3..6], ["rebuilt", "cargo", "clean"], "{r:?}");
     }
@@ -514,7 +527,7 @@ fn projects_in_json_and_without_a_directory() {
     let names: Vec<&str> = homes.iter().map(|h| h["name"].as_str().unwrap()).collect();
     assert_eq!(names, ["cargo", "rustup", "projects"]);
     let p = &homes[2];
-    assert_eq!(p["parts"][0]["name"], "a/target");
+    assert_eq!(p["parts"][0]["name"], native("a/target"));
     assert_eq!(p["parts"][0]["class"], "rebuilt");
     let sum: u64 = homes
         .iter()
@@ -565,7 +578,7 @@ fn a_pinned_toolchain_that_is_missing_is_not_installed() {
     out.assert_ok();
     assert_eq!(
         project_rows(&out.stdout)[0][0],
-        "p/target",
+        native("p/target"),
         "{}",
         out.stdout
     );

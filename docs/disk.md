@@ -120,4 +120,4 @@ meaning; adding a key does not change it.
 
 ## Not yet
 
-- Third-party caches (sccache, IDE caches), and Windows.
+- Third-party caches (sccache, IDE caches).

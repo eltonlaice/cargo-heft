@@ -269,18 +269,26 @@ fn a_dsym_and_split_dwarf_count_as_debuginfo() {
     assert!(kinds["debuginfo (dSYM)"].as_u64().unwrap() > 0);
     assert!(kinds["debuginfo (split DWARF)"].as_u64().unwrap() > 0);
 
-    #[cfg(unix)]
-    {
-        assert_eq!(kinds["debuginfo (dSYM)"], disk_bytes(&dsym));
-        assert_eq!(
-            kinds["debuginfo (split DWARF)"],
-            disk_bytes(&dwo) + disk_bytes(&dwp)
-        );
-        assert_eq!(
-            report["by_content"]["debuginfo"],
-            disk_bytes(&dsym) + disk_bytes(&dwo) + disk_bytes(&dwp)
-        );
-    }
+    assert_eq!(kinds["debuginfo (dSYM)"], disk_bytes(&dsym));
+    assert_eq!(
+        kinds["debuginfo (split DWARF)"],
+        disk_bytes(&dwo) + disk_bytes(&dwp)
+    );
+    assert_eq!(
+        report["by_content"]["debuginfo"],
+        disk_bytes(&dsym) + disk_bytes(&dwo) + disk_bytes(&dwp)
+    );
+}
+
+#[test]
+fn a_pdb_counts_as_debuginfo() {
+    let dir = TempDir::new("pdb");
+    let root = dir.path();
+    let pdb = write_sized(root, "debug/deps/foo-0123456789abcdef.pdb", 8192, b'p');
+    let report = report(root, &["--target-dir", root.to_str().unwrap()]);
+    assert_consistent(&report);
+    assert_eq!(report["by_kind"]["debuginfo (pdb)"], disk_bytes(&pdb));
+    assert_eq!(report["by_content"]["debuginfo"], disk_bytes(&pdb));
 }
 
 #[test]

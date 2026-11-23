@@ -450,6 +450,8 @@ fn a_reader_that_leaves_early_is_not_a_panic() {
     }
 }
 
+// Compares with blocks on disk and inode numbers, which are unix only.
+#[cfg(unix)]
 #[test]
 fn a_subdirectory_of_a_target_keeps_its_meaning() {
     let target = Path::new(env!("CARGO_TARGET_TMPDIR")).join("fixture-target-subdirs");
