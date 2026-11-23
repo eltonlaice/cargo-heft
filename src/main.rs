@@ -598,7 +598,8 @@ fn measure(root: &Path) -> io::Result<Report> {
     let mut seen = HashSet::new();
     let (mut rlibs, mut rmetas) = (BTreeMap::new(), Vec::new());
     for f in &files {
-        if cfg!(unix) && !seen.insert(f.id) {
+        // (0, 0): no identity (a path that could not be opened); count it.
+        if f.id != (0, 0) && !seen.insert(f.id) {
             continue;
         }
         let script_unit = f.rel.ancestors().any(|a| script_units.contains(a));

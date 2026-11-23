@@ -209,8 +209,14 @@ fn classifies_the_build_dir_v2_layout() {
     );
     write_sized(root, "debug/build/dep/3333333333333333/run/stdout", 1, b's');
     write_sized(root, "debug/build/dep/3333333333333333/run/stderr", 1, b'e');
-    // A binary unit.
-    let binary = write_sized(root, "debug/build/app/4444444444444444/out/app", 1, b'x');
+    // A binary unit: no extension and executable on unix, `.exe` on Windows.
+    let app = if cfg!(windows) { "app.exe" } else { "app" };
+    let binary = write_sized(
+        root,
+        &format!("debug/build/app/4444444444444444/out/{app}"),
+        1,
+        b'x',
+    );
     set_executable(&binary);
 
     let out = run_in(root, &["--json", "--target-dir", root.to_str().unwrap()]);
