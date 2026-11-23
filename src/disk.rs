@@ -295,10 +295,22 @@ pub fn inventory(
 }
 
 /// `path` as a shell word: quoted when it has a space or a quote in it.
+#[cfg(not(windows))]
 fn shell_word(path: &Path) -> String {
     let s = path.to_string_lossy();
     match s.contains(|c: char| c.is_whitespace() || "'\"$`\\".contains(c)) {
         true => format!("'{}'", s.replace('\'', r"'\''")),
+        false => s.into_owned(),
+    }
+}
+
+/// On Windows, double quotes when there is a space: what cmd and PowerShell
+/// both read. A backslash is a separator there, not an escape.
+#[cfg(windows)]
+fn shell_word(path: &Path) -> String {
+    let s = path.to_string_lossy();
+    match s.contains(char::is_whitespace) {
+        true => format!("\"{s}\""),
         false => s.into_owned(),
     }
 }
