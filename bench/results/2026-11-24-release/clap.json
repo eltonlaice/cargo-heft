@@ -1,0 +1,40 @@
+{
+  "by_content": {
+    "code, data and symbols": 12269948,
+    "debuginfo": 5653345,
+    "metadata (.rmeta files)": 3518464,
+    "metadata (inside rlib/dylib)": 3527459,
+    "other": 331776
+  },
+  "by_crate": {
+    "anstream": 806912,
+    "anstyle": 573440,
+    "anstyle_parse": 434176,
+    "anstyle_query": 73728,
+    "clap": 7753728,
+    "clap_builder": 13643776,
+    "clap_lex": 409600,
+    "colorchoice": 73728,
+    "is_terminal_polyfill": 57344,
+    "strsim": 655360,
+    "utf8parse": 98304
+  },
+  "by_kind": {
+    "binary": 1359872,
+    "dep-info": 73728,
+    "directories": 0,
+    "fingerprint": 249856,
+    "object file": 11763712,
+    "other": 8192,
+    "rlib": 8327168,
+    "rmeta": 3518464
+  },
+  "by_profile": {
+    "(not in a profile)": 8192,
+    "release": 25292800
+  },
+  "duplicated_metadata_bytes": 3512423,
+  "schema_version": 1,
+  "target_dir": "target-clap",
+  "total_bytes": 25300992
+}

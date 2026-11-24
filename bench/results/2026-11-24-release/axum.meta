@@ -1,0 +1,7 @@
+status=ok
+url=https://github.com/tokio-rs/axum
+commit=3ebdbe686c3d828dd8daff49c1a0d1516f102a02
+build_seconds=14
+profile=release
+rustc=rustc 1.100.0 (0ef1bc386 2026-11-09)
+host=aarch64-apple-darwin
