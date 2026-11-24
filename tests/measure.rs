@@ -209,8 +209,14 @@ fn classifies_the_build_dir_v2_layout() {
     );
     write_sized(root, "debug/build/dep/3333333333333333/run/stdout", 1, b's');
     write_sized(root, "debug/build/dep/3333333333333333/run/stderr", 1, b'e');
-    // A binary unit.
-    let binary = write_sized(root, "debug/build/app/4444444444444444/out/app", 1, b'x');
+    // A binary unit: no extension and executable on unix, `.exe` on Windows.
+    let app = if cfg!(windows) { "app.exe" } else { "app" };
+    let binary = write_sized(
+        root,
+        &format!("debug/build/app/4444444444444444/out/{app}"),
+        1,
+        b'x',
+    );
     set_executable(&binary);
 
     let out = run_in(root, &["--json", "--target-dir", root.to_str().unwrap()]);
@@ -269,18 +275,26 @@ fn a_dsym_and_split_dwarf_count_as_debuginfo() {
     assert!(kinds["debuginfo (dSYM)"].as_u64().unwrap() > 0);
     assert!(kinds["debuginfo (split DWARF)"].as_u64().unwrap() > 0);
 
-    #[cfg(unix)]
-    {
-        assert_eq!(kinds["debuginfo (dSYM)"], disk_bytes(&dsym));
-        assert_eq!(
-            kinds["debuginfo (split DWARF)"],
-            disk_bytes(&dwo) + disk_bytes(&dwp)
-        );
-        assert_eq!(
-            report["by_content"]["debuginfo"],
-            disk_bytes(&dsym) + disk_bytes(&dwo) + disk_bytes(&dwp)
-        );
-    }
+    assert_eq!(kinds["debuginfo (dSYM)"], disk_bytes(&dsym));
+    assert_eq!(
+        kinds["debuginfo (split DWARF)"],
+        disk_bytes(&dwo) + disk_bytes(&dwp)
+    );
+    assert_eq!(
+        report["by_content"]["debuginfo"],
+        disk_bytes(&dsym) + disk_bytes(&dwo) + disk_bytes(&dwp)
+    );
+}
+
+#[test]
+fn a_pdb_counts_as_debuginfo() {
+    let dir = TempDir::new("pdb");
+    let root = dir.path();
+    let pdb = write_sized(root, "debug/deps/foo-0123456789abcdef.pdb", 8192, b'p');
+    let report = report(root, &["--target-dir", root.to_str().unwrap()]);
+    assert_consistent(&report);
+    assert_eq!(report["by_kind"]["debuginfo (pdb)"], disk_bytes(&pdb));
+    assert_eq!(report["by_content"]["debuginfo"], disk_bytes(&pdb));
 }
 
 #[test]

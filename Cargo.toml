@@ -14,3 +14,9 @@ exclude = ["bench/", ".github/"]
 [dependencies]
 object = { version = "0.41", default-features = false, features = ["std", "read_core", "archive", "elf", "macho", "coff"] }
 serde_json = "1"
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Storage_FileSystem"] }
+
+[target.'cfg(windows)'.dev-dependencies]
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Storage_FileSystem"] }

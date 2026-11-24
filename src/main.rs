@@ -181,6 +181,7 @@ fn classify(rel: &Path, executable: bool, script_unit: bool) -> &'static str {
         Some("o") => "object file",
         Some("dylib" | "so" | "dll") => "dylib",
         Some("dwo" | "dwp") => "debuginfo (split DWARF)",
+        Some("pdb") => "debuginfo (pdb)",
         Some("exe") => "binary",
         None if executable => "binary",
         _ => "other",
@@ -258,7 +259,7 @@ fn target_of(rel: &Path) -> Option<(String, String)> {
 }
 
 #[cfg(unix)]
-fn disk_usage(md: &fs::Metadata) -> (u64, (u64, u64), bool) {
+fn disk_usage(_: &Path, md: &fs::Metadata) -> (u64, (u64, u64), bool) {
     use std::os::unix::fs::MetadataExt;
     (
         md.blocks() * 512,
@@ -267,10 +268,55 @@ fn disk_usage(md: &fs::Metadata) -> (u64, (u64, u64), bool) {
     )
 }
 
-#[cfg(not(unix))]
-fn disk_usage(md: &fs::Metadata) -> (u64, (u64, u64), bool) {
-    // ponytail: logical size and no hard-link detection off unix; use the
-    // Windows file-id APIs if Windows support is ever asked for.
+/// On Windows: the allocated size and the volume serial number with the file
+/// index, which together name a file the way (st_dev, st_ino) do on unix, so
+/// hard links are counted once. The path is opened for its attributes only,
+/// and a symlink or junction is opened itself, not followed. If it cannot be
+/// opened, the logical size, counted every time it is seen.
+#[cfg(windows)]
+fn disk_usage(path: &Path, md: &fs::Metadata) -> (u64, (u64, u64), bool) {
+    use std::os::windows::fs::OpenOptionsExt;
+    use std::os::windows::io::AsRawHandle;
+    use windows_sys::Win32::Storage::FileSystem::{
+        BY_HANDLE_FILE_INFORMATION, FILE_FLAG_BACKUP_SEMANTICS, FILE_FLAG_OPEN_REPARSE_POINT,
+        FILE_READ_ATTRIBUTES, FILE_SHARE_DELETE, FILE_SHARE_READ, FILE_SHARE_WRITE,
+        FILE_STANDARD_INFO, FileStandardInfo, GetFileInformationByHandle,
+        GetFileInformationByHandleEx,
+    };
+    let fallback = (md.len(), (0, 0), false);
+    let Ok(file) = fs::OpenOptions::new()
+        .access_mode(FILE_READ_ATTRIBUTES)
+        .share_mode(FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE)
+        .custom_flags(FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT)
+        .open(path)
+    else {
+        return fallback;
+    };
+    let handle = file.as_raw_handle();
+    // SAFETY: both calls only write into the zeroed structs passed by
+    // pointer, with their own sizes, while `file` keeps the handle open.
+    unsafe {
+        let mut id: BY_HANDLE_FILE_INFORMATION = std::mem::zeroed();
+        if GetFileInformationByHandle(handle, &mut id) == 0 {
+            return fallback;
+        }
+        let mut info: FILE_STANDARD_INFO = std::mem::zeroed();
+        let size = match GetFileInformationByHandleEx(
+            handle,
+            FileStandardInfo,
+            (&mut info as *mut FILE_STANDARD_INFO).cast(),
+            std::mem::size_of::<FILE_STANDARD_INFO>() as u32,
+        ) {
+            0 => md.len(),
+            _ => info.AllocationSize as u64,
+        };
+        let index = (u64::from(id.nFileIndexHigh) << 32) | u64::from(id.nFileIndexLow);
+        (size, (u64::from(id.dwVolumeSerialNumber), index), false)
+    }
+}
+
+#[cfg(not(any(unix, windows)))]
+fn disk_usage(_: &Path, md: &fs::Metadata) -> (u64, (u64, u64), bool) {
     (md.len(), (0, 0), false)
 }
 
@@ -359,7 +405,7 @@ fn walk(
     for entry in fs::read_dir(dir).map_err(at(dir))? {
         let path = entry.map_err(at(dir))?.path();
         let md = fs::symlink_metadata(&path).map_err(at(&path))?;
-        let (bytes, id, executable) = disk_usage(&md);
+        let (bytes, id, executable) = disk_usage(&path, &md);
         let rel = path.strip_prefix(root).unwrap_or(&path).to_path_buf();
         if md.is_dir() {
             dirs.push((rel, bytes));
@@ -504,7 +550,9 @@ impl Report {
                 }
             }
             "rmeta" => put("metadata (.rmeta files)", f.bytes),
-            "debuginfo (dSYM)" | "debuginfo (split DWARF)" => put("debuginfo", f.bytes),
+            "debuginfo (dSYM)" | "debuginfo (split DWARF)" | "debuginfo (pdb)" => {
+                put("debuginfo", f.bytes)
+            }
             "incremental" => put("incremental cache", f.bytes),
             _ => put("other", f.bytes),
         }
@@ -514,7 +562,7 @@ impl Report {
 fn measure(root: &Path) -> io::Result<Report> {
     let mut r = Report::default();
     let mut files = Vec::new();
-    let (bytes, ..) = disk_usage(&fs::symlink_metadata(root).map_err(at(root))?);
+    let (bytes, ..) = disk_usage(root, &fs::symlink_metadata(root).map_err(at(root))?);
     // Inside a target directory, name paths from its root (see locate_in_target).
     let (base, prefix) = locate_in_target(root).unwrap_or((root.to_path_buf(), PathBuf::new()));
     let mut dirs = vec![(prefix.clone(), bytes)];
@@ -550,7 +598,8 @@ fn measure(root: &Path) -> io::Result<Report> {
     let mut seen = HashSet::new();
     let (mut rlibs, mut rmetas) = (BTreeMap::new(), Vec::new());
     for f in &files {
-        if cfg!(unix) && !seen.insert(f.id) {
+        // (0, 0): no identity (a path that could not be opened); count it.
+        if f.id != (0, 0) && !seen.insert(f.id) {
             continue;
         }
         let script_unit = f.rel.ancestors().any(|a| script_units.contains(a));

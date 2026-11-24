@@ -51,6 +51,7 @@ fn disk_in(dir: &Path, cargo: &Path, rustup: &Path, envs: &[(&str, &str)]) -> Ou
 }
 
 /// The tool's own rounding: decimal units, as in the report.
+#[cfg(unix)]
 fn human_bytes(bytes: u64) -> String {
     let kb = bytes as f64 / 1e3;
     match bytes {
@@ -70,6 +71,7 @@ fn row<'a>(out: &'a str, part: &str) -> Vec<&'a str> {
     line.split_whitespace().skip(3).collect()
 }
 
+#[cfg(unix)]
 fn du_bytes(path: &Path) -> u64 {
     let out = std::process::Command::new("du")
         .arg("-sk")
@@ -124,6 +126,9 @@ fn each_part_is_classified_with_the_command_that_removes_it() {
     );
 }
 
+// `du` on Windows is an emulation (Git Bash) that counts directories its own
+// way, so these comparisons run on unix only.
+#[cfg(unix)]
 #[test]
 fn the_total_of_each_home_matches_du() {
     let t = TempDir::new("disk-du");
@@ -153,6 +158,7 @@ fn a_missing_home_is_reported_not_an_error() {
     assert!(out.stdout.contains("registry/src"));
 }
 
+#[cfg(unix)]
 #[test]
 fn a_symlink_is_counted_not_followed() {
     let t = TempDir::new("disk-symlink");
@@ -179,6 +185,7 @@ fn a_symlink_is_counted_not_followed() {
     );
 }
 
+#[cfg(unix)]
 #[test]
 fn an_unreadable_directory_is_named_and_the_rest_measured() {
     use std::os::unix::fs::PermissionsExt;
@@ -255,6 +262,7 @@ fn disk_json_has_the_same_numbers_and_says_why_a_part_is_kept() {
             .map(|p| p["bytes"].as_u64().unwrap())
             .sum();
         assert_eq!(parts, h["total_bytes"].as_u64().unwrap(), "{h}");
+        #[cfg(unix)]
         assert_eq!(
             h["total_bytes"].as_u64().unwrap(),
             du_bytes(Path::new(h["path"].as_str().unwrap()))
@@ -283,6 +291,7 @@ fn disk_json_has_the_same_numbers_and_says_why_a_part_is_kept() {
     assert!(v["unreadable"].as_array().unwrap().is_empty());
 }
 
+#[cfg(unix)]
 fn unsafe_running_as_root() -> bool {
     std::process::Command::new("id")
         .arg("-u")
@@ -413,6 +422,15 @@ fn disk_projects(tmp: &Path, args: &[&str], envs: &[(&str, &str)]) -> Outcome {
     run_with(tmp, &a, &all, &remove)
 }
 
+/// `a/b` as the report prints it on this system (`a\\b` on Windows).
+fn native(rel: &str) -> String {
+    Path::new(rel)
+        .iter()
+        .collect::<std::path::PathBuf>()
+        .display()
+        .to_string()
+}
+
 /// The rows under "Target directories": name, then the rest split on spaces.
 fn project_rows(out: &str) -> Vec<Vec<String>> {
     out.lines()
@@ -457,26 +475,34 @@ fn projects_lists_each_workspace_target_once() {
     out.assert_ok();
     let rows = project_rows(&out.stdout);
     let names: Vec<&str> = rows.iter().map(|r| r[0].as_str()).collect();
-    assert_eq!(names, ["ws/target", "a/target", "c/out"], "{}", out.stdout);
+    let want_names: Vec<String> = ["ws/target", "a/target", "c/out"].map(native).into();
+    assert_eq!(names, want_names, "{}", out.stdout);
     for r in &rows {
         assert_eq!(r[3..6], ["rebuilt", "cargo", "clean"], "{r:?}");
     }
-    let ws_manifest = code.join("ws/Cargo.toml").canonicalize().unwrap();
-    assert_eq!(rows[0].last().unwrap(), ws_manifest.to_str().unwrap());
-    // The section total is what du gives for the three directories.
-    let want: u64 = ["a/target", "ws/target", "c/out"]
-        .iter()
-        .map(|d| du_bytes(&code.join(d)))
-        .sum();
-    let header = out
-        .stdout
-        .lines()
-        .find(|l| l.starts_with("Target directories"))
-        .unwrap();
+    // The workspace's own manifest, as Cargo names it (a real path).
     assert!(
-        header.contains(&format!("({}, ", human_bytes(want))),
-        "{header}"
+        rows[0].last().unwrap().ends_with(&native("ws/Cargo.toml")),
+        "{:?}",
+        rows[0]
     );
+    // The section total is what du gives for the three directories.
+    #[cfg(unix)]
+    {
+        let want: u64 = ["a/target", "ws/target", "c/out"]
+            .iter()
+            .map(|d| du_bytes(&code.join(d)))
+            .sum();
+        let header = out
+            .stdout
+            .lines()
+            .find(|l| l.starts_with("Target directories"))
+            .unwrap();
+        assert!(
+            header.contains(&format!("({}, ", human_bytes(want))),
+            "{header}"
+        );
+    }
     // Read only.
     assert!(code.join("a/target/debug/deps/libx.rlib").exists());
 }
@@ -514,7 +540,7 @@ fn projects_in_json_and_without_a_directory() {
     let names: Vec<&str> = homes.iter().map(|h| h["name"].as_str().unwrap()).collect();
     assert_eq!(names, ["cargo", "rustup", "projects"]);
     let p = &homes[2];
-    assert_eq!(p["parts"][0]["name"], "a/target");
+    assert_eq!(p["parts"][0]["name"], native("a/target"));
     assert_eq!(p["parts"][0]["class"], "rebuilt");
     let sum: u64 = homes
         .iter()
@@ -565,7 +591,7 @@ fn a_pinned_toolchain_that_is_missing_is_not_installed() {
     out.assert_ok();
     assert_eq!(
         project_rows(&out.stdout)[0][0],
-        "p/target",
+        native("p/target"),
         "{}",
         out.stdout
     );

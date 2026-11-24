@@ -8,6 +8,9 @@ Notable changes to cargo-heft. The format follows
 
 ### Added
 
+- Windows support. Sizes are allocation sizes and a file is identified by its
+  volume serial number and file index, so hard links are counted once, as on
+  unix. `.pdb` files count as debuginfo. CI runs on `windows-latest`. (#7)
 - `cargo heft disk --projects <DIR>` lists the target directory of every
   Cargo workspace under `DIR`, with its size and the `cargo clean` command
   for it. Target directories moved by `CARGO_TARGET_DIR`, `build.target-dir`

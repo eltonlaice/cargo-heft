@@ -5,8 +5,6 @@
 
 mod common;
 
-use std::fs;
-
 use common::*;
 
 #[test]
@@ -379,12 +377,12 @@ fn unreadable_directories_are_reported_not_panicked() {
         let target = mkdir(dir.path(), "target");
         let secret = mkdir(&target, "debug/secret");
         write_file(&secret, "blob", b"x");
-        let _ = fs::set_permissions(&secret, fs::Permissions::from_mode(0o000));
+        let _ = std::fs::set_permissions(&secret, std::fs::Permissions::from_mode(0o000));
 
         let out = run_in(dir.path(), &["--target-dir", target.to_str().unwrap()]);
         // Restore permissions before any assertion can unwind, so the
         // temporary directory can still be removed.
-        let _ = fs::set_permissions(&secret, fs::Permissions::from_mode(0o755));
+        let _ = std::fs::set_permissions(&secret, std::fs::Permissions::from_mode(0o755));
 
         // Under root, permissions are not enforced; accept either outcome but
         // never a panic.

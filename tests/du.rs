@@ -47,18 +47,24 @@ fn total_matches_du_on_a_real_build() {
     let v: serde_json::Value = serde_json::from_str(&json).unwrap();
     let total = v["total_bytes"].as_u64().unwrap();
 
-    // du -sk reports 1024-byte units, rounded up.
-    let du: u64 = stdout(Command::new("du").arg("-sk").arg(&target))
-        .split_whitespace()
-        .next()
-        .unwrap()
-        .parse()
-        .unwrap();
-    assert_eq!(
-        total.div_ceil(1024),
-        du,
-        "total {total} bytes vs du {du} KiB"
-    );
+    // du -sk reports 1024-byte units, rounded up. On Windows the only du is
+    // Git Bash's emulation, which rounds the small files NTFS keeps inside the
+    // file table its own way, so the comparison is for unix.
+    #[cfg(unix)]
+    {
+        let du: u64 = stdout(Command::new("du").arg("-sk").arg(&target))
+            .split_whitespace()
+            .next()
+            .unwrap()
+            .parse()
+            .unwrap();
+        assert_eq!(
+            total.div_ceil(1024),
+            du,
+            "total {total} bytes vs du {du} KiB, by kind {}",
+            v["by_kind"]
+        );
+    }
 
     let kinds = v["by_kind"].as_object().unwrap();
     assert_eq!(
@@ -450,6 +456,8 @@ fn a_reader_that_leaves_early_is_not_a_panic() {
     }
 }
 
+// Compares with blocks on disk and inode numbers, which are unix only.
+#[cfg(unix)]
 #[test]
 fn a_subdirectory_of_a_target_keeps_its_meaning() {
     let target = Path::new(env!("CARGO_TARGET_TMPDIR")).join("fixture-target-subdirs");

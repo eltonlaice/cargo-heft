@@ -252,7 +252,33 @@ pub fn disk_bytes(path: &Path) -> u64 {
         use std::os::unix::fs::MetadataExt;
         fs::symlink_metadata(path).expect("stat").blocks() * 512
     }
-    #[cfg(not(unix))]
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::OpenOptionsExt;
+        use std::os::windows::io::AsRawHandle;
+        use windows_sys::Win32::Storage::FileSystem::{
+            FILE_FLAG_BACKUP_SEMANTICS, FILE_FLAG_OPEN_REPARSE_POINT, FILE_READ_ATTRIBUTES,
+            FILE_STANDARD_INFO, FileStandardInfo, GetFileInformationByHandleEx,
+        };
+        let file = fs::OpenOptions::new()
+            .access_mode(FILE_READ_ATTRIBUTES)
+            .custom_flags(FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT)
+            .open(path)
+            .expect("open for attributes");
+        // SAFETY: writes only into `info`, of the size given.
+        unsafe {
+            let mut info: FILE_STANDARD_INFO = std::mem::zeroed();
+            let ok = GetFileInformationByHandleEx(
+                file.as_raw_handle(),
+                FileStandardInfo,
+                (&mut info as *mut FILE_STANDARD_INFO).cast(),
+                std::mem::size_of::<FILE_STANDARD_INFO>() as u32,
+            );
+            assert_ne!(ok, 0, "GetFileInformationByHandleEx");
+            info.AllocationSize as u64
+        }
+    }
+    #[cfg(not(any(unix, windows)))]
     {
         fs::symlink_metadata(path).expect("stat").len()
     }

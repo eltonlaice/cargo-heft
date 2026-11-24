@@ -16,7 +16,7 @@ and by what is inside the files: debuginfo, metadata and code.
 
 It only reads: nothing in your `target/`, Cargo home or rustup home is changed
 or deleted. It runs on
-macOS and Linux.
+macOS, Linux and Windows.
 
 [2025 State of Rust survey]: https://blog.rust-lang.org/2026/03/02/2025-State-Of-Rust-Survey-results/
 [goal]: https://goals.rust-lang.org/2026/target-dir-size.html

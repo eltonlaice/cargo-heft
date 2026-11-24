@@ -82,7 +82,7 @@ fn du(
             unreadable.push(path);
             continue;
         };
-        let (bytes, id, _) = disk_usage(&md);
+        let (bytes, id, _) = disk_usage(&path, &md);
         if id == (0, 0) || seen.insert(id) {
             put(path.strip_prefix(root).unwrap_or(&path), bytes);
         }
@@ -107,8 +107,8 @@ fn measure(
     let mut total = 0;
     if found {
         if let Ok(md) = fs::symlink_metadata(&path) {
-            let (bytes, id, _) = disk_usage(&md);
-            if seen.insert(id) {
+            let (bytes, id, _) = disk_usage(&path, &md);
+            if id == (0, 0) || seen.insert(id) {
                 total += bytes;
                 *sizes.entry("other".into()).or_default() += bytes;
             }
@@ -295,10 +295,22 @@ pub fn inventory(
 }
 
 /// `path` as a shell word: quoted when it has a space or a quote in it.
+#[cfg(not(windows))]
 fn shell_word(path: &Path) -> String {
     let s = path.to_string_lossy();
     match s.contains(|c: char| c.is_whitespace() || "'\"$`\\".contains(c)) {
         true => format!("'{}'", s.replace('\'', r"'\''")),
+        false => s.into_owned(),
+    }
+}
+
+/// On Windows, double quotes when there is a space: what cmd and PowerShell
+/// both read. A backslash is a separator there, not an escape.
+#[cfg(windows)]
+fn shell_word(path: &Path) -> String {
+    let s = path.to_string_lossy();
+    match s.contains(char::is_whitespace) {
+        true => format!("\"{s}\""),
         false => s.into_owned(),
     }
 }
@@ -418,8 +430,8 @@ fn projects(dir: PathBuf, seen: &mut HashSet<(u64, u64)>, unreadable: &mut Vec<P
             }
             let mut bytes = 0;
             if let Ok(md) = fs::symlink_metadata(&real) {
-                let (b, id, _) = disk_usage(&md);
-                if seen.insert(id) {
+                let (b, id, _) = disk_usage(&real, &md);
+                if id == (0, 0) || seen.insert(id) {
                     bytes += b;
                 }
             }
