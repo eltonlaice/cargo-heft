@@ -128,7 +128,9 @@ It removes nothing. What each part is and what removing it costs is in
 On 18 well-known projects (ripgrep, tokio, cargo, rust-analyzer, ruff, uv and
 others), a quarter to a third of `target/` is debuginfo, and a fifth to a
 third is the incremental cache. A recent nightly needs 19% less space than
-Rust 1.100, about half of that because metadata is no longer stored twice. The tables,
+Rust 1.100, about half of that because metadata is no longer stored twice. A
+release build takes a third of the space of a `dev` build, and more than half
+of what is left is crate metadata. The tables,
 the raw data and the scripts are in [`bench/results`](bench/results).
 
 ## Contributing

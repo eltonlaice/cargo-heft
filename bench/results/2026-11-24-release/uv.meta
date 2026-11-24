@@ -1,0 +1,7 @@
+status=ok
+url=https://github.com/astral-sh/uv
+commit=d5c3f174417418c24ec3c276e01b0f62b961b13c
+build_seconds=696
+profile=release
+rustc=rustc 1.100.0 (0ef1bc386 2026-11-09)
+host=aarch64-apple-darwin
